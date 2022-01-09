@@ -106,6 +106,7 @@ class Tile {
     this.load();
   }
 
+  // 加载图片
   load() {
     this.img = new Image();
     this.img.src = this.url;
@@ -115,6 +116,7 @@ class Tile {
     };
   }
 
+  // 将图片渲染到canvas上
   render() {
     if (!this.loaded) {
       return;
@@ -122,31 +124,40 @@ class Tile {
     this.ctx.drawImage(this.img, this.x + this.ox, this.y + this.oy);
   }
 
+  // 设置偏移量
   setOffset(ox, oy) {
     this.ox = ox;
     this.oy = oy;
   }
 }
 
+// 瓦片实例列表
 const tileCache = {};
 const tileList = [];
+// 初始中心经纬度
+let center = [120.148732, 30.231006]// 雷锋塔
+// 初始缩放层级
+const zoom = 17
+// canvas绘图上下文
+let ctx = null
 
 export default {
   name: "App",
   data() {
     return {
+      // 画布宽高
       width: 0,
       height: 0,
-      ctx: null,
-      center: [120.148732, 30.231006],
-      zoom: 17,
-      isMousedown: false,
-      moveX: 0,
-      moveY: 0,
+      // 画布需要的瓦片数量
       rowCount: 0,
       colCount: 0,
       halfRowCount: 0,
       halfColCount: 0,
+      // 鼠标按下标志
+      isMousedown: false,
+      // 拖动的总距离
+      dragX: 0,
+      dragY: 0,
     };
   },
   mounted() {
@@ -159,15 +170,17 @@ export default {
   methods: {
     // 初始化画布
     initCanvas() {
+      // 获取容器宽高
       let { width, height } = this.$refs.map.getBoundingClientRect();
       this.width = width;
       this.height = height;
+      // 设置画布宽高
       let canvas = this.$refs.canvas;
       canvas.width = this.width;
       canvas.height = this.height;
-      this.ctx = canvas.getContext("2d");
+      ctx = canvas.getContext("2d");
       // 移动画布原点
-      this.ctx.translate(this.width / 2, this.height / 2);
+      ctx.translate(this.width / 2, this.height / 2);
     },
 
     // 计算需要的瓦片数量
@@ -186,8 +199,8 @@ export default {
     renderTiles() {
       // 中心点对应的瓦片
       let centerTile = getTileRowAndCol(
-        ...lngLat2Mercator(...this.center),
-        this.zoom
+        ...lngLat2Mercator(...center),
+        zoom
       );
       // 中心瓦片左上角对应的像素坐标
       let centerTilePos = [
@@ -195,7 +208,7 @@ export default {
         centerTile[1] * TILE_SIZE,
       ];
       // 中心点对应的像素坐标
-      let centerPos = getPxFromLngLat(...this.center, this.zoom);
+      let centerPos = getPxFromLngLat(...center, zoom);
       // 中心瓦片左上角距中心像素坐标的差值
       let offset = [
         centerTilePos[0] - centerPos[0],
@@ -213,7 +226,7 @@ export default {
           //   getTileUrl(
           //     centerTile[0] + offsetIndex[0],
           //     centerTile[1] + offsetIndex[1],
-          //     this.zoom
+          //     zoom
           //   ),
           //   offset[0] + offsetIndex[0] * TILE_SIZE,
           //   offset[1] + offsetIndex[1] * TILE_SIZE
@@ -224,14 +237,14 @@ export default {
           let tile = null;
           if (tileCache[row + "_" + col]) {
             tile = tileCache[row + "_" + col];
-            tile.setOffset(this.moveX, this.moveY);
+            tile.setOffset(this.dragX, this.dragY);
             tile.render();
           } else {
             tile = new Tile({
-              url: getTileUrl(row, col, this.zoom),
-              x: offset[0] + offsetIndex[0] * TILE_SIZE - this.moveX,
-              y: offset[1] + offsetIndex[1] * TILE_SIZE - this.moveY,
-              ctx: this.ctx,
+              url: getTileUrl(row, col, zoom),
+              x: offset[0] + offsetIndex[0] * TILE_SIZE - this.dragX,
+              y: offset[1] + offsetIndex[1] * TILE_SIZE - this.dragY,
+              ctx: ctx,
             });
             tileList.push(tile);
             tileCache[row + "_" + col] = tile;
@@ -243,21 +256,21 @@ export default {
     // 渲染瓦片
     renderTile(url, x, y) {
       if (tileCache[x + "_" + y]) {
-        this.ctx.drawImage(tileCache[x + "_" + y], x, y);
+        ctx.drawImage(tileCache[x + "_" + y], x, y);
         return;
       }
       let img = new Image();
       img.src = url;
       img.onload = () => {
         // 渲染到canvas
-        this.ctx.drawImage(img, x, y);
+        ctx.drawImage(img, x, y);
         tileCache[x + "_" + y] = img;
       };
     },
 
     // 清除画布
     clear() {
-      this.ctx.clearRect(
+      ctx.clearRect(
         -this.width / 2,
         -this.height / 2,
         this.width,
@@ -277,16 +290,21 @@ export default {
       if (!this.isMousedown) {
         return;
       }
-      this.moveX += e.movementX;
-      this.moveY += e.movementY;
-      let mx = e.movementX * resolutions[this.zoom];
-      let my = e.movementY * resolutions[this.zoom];
-      let [x, y] = lngLat2Mercator(...this.center);
-      this.center = mercatorToLngLat(x - mx, my + y);
+      // 记录总的拖动距离
+      this.dragX += e.movementX;
+      this.dragY += e.movementY;
+      // 计算本次拖动的距离对应的经纬度数据
+      let mx = e.movementX * resolutions[zoom];
+      let my = e.movementY * resolutions[zoom];
+      let [x, y] = lngLat2Mercator(...center);
+      // 更新拖动后的中心点经纬度
+      center = mercatorToLngLat(x - mx, my + y);
+      // 清除画布重新渲染瓦片
       this.clear();
       this.renderTiles();
     },
 
+    // 鼠标松开
     onMouseup() {
       this.isMousedown = false;
     },
