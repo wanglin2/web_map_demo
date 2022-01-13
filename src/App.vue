@@ -112,8 +112,6 @@ class Tile {
     this.url = ''
     // 缓存key
     this.cacheKey = this.row + '_' + this.col + '_' + this.zoom
-    // this.ox = opt.ox || 0
-    // this.oy = opt.oy || 0
     // 图片
     this.img = null
     // 图片是否加载完成
@@ -151,7 +149,6 @@ class Tile {
     if (!this.loaded || !this.shouldRender(this.cacheKey)) {
       return
     }
-    // this.ctx.drawImage(this.img, this.x + this.ox, this.y + this.oy)
     this.ctx.drawImage(this.img, this.x, this.y)
   }
 
@@ -161,12 +158,6 @@ class Tile {
     this.y = y
     return this
   }
-
-  // 设置偏移量
-  // setOffset(ox, oy) {
-  //   this.ox = ox
-  //   this.oy = oy
-  // }
 }
 
 export default {
@@ -183,11 +174,6 @@ export default {
       halfColCount: 0,
       // 鼠标按下标志
       isMousedown: false,
-      // 拖动的总距离
-      // dragX: 0,
-      // dragY: 0,
-      // 瓦片实例列表
-      // const tileList = []
       // 缓存瓦片实例
       tileCache: {},
       // 记录当前画布上需要的瓦片
@@ -273,8 +259,7 @@ export default {
           // 当前瓦片的显示位置
           let x = offset[0] + offsetIndex[0] * TILE_SIZE
           let y = offset[1] + offsetIndex[1] * TILE_SIZE
-
-          // 方法一
+          // 缓存key
           let cacheKey = row + '_' + col + '_' + this.zoom
           // 记录当前需要的瓦片
           this.currentTileCache[cacheKey] = true
@@ -296,23 +281,6 @@ export default {
               },
             })
           }
-
-          // 方法二
-          // let tile = null;
-          // if (this.tileCache[row + "_" + col]) {
-          //   tile = this.tileCache[row + "_" + col];
-          //   tile.setOffset(this.dragX, this.dragY);
-          //   tile.render();
-          // } else {
-          //   tile = new Tile({
-          //     url: getTileUrl(row, col, this.zoom),
-          //     x: offset[0] + offsetIndex[0] * TILE_SIZE - this.dragX,
-          //     y: offset[1] + offsetIndex[1] * TILE_SIZE - this.dragY,
-          //     ctx: this.ctx,
-          //   });
-          //   tileList.push(tile);
-          //   this.tileCache[row + "_" + col] = tile;
-          // }
         }
       }
     },
@@ -339,9 +307,6 @@ export default {
       if (!this.isMousedown) {
         return
       }
-      // 记录总的拖动距离
-      // this.dragX += e.movementX;
-      // this.dragY += e.movementY;
       // 计算本次拖动的距离对应的经纬度数据
       let mx = e.movementX * resolutions[this.zoom]
       let my = e.movementY * resolutions[this.zoom]
@@ -368,18 +333,6 @@ export default {
         if (this.zoom < this.maxZoom) this.zoom++
       }
 
-      // let scaleNum = 1
-      // let fn = () => {
-      //   if (scaleNum >= 2) {
-      //     return
-      //   }
-      //   this.ctx.scale(scaleNum, scaleNum)
-      //   this.clear()
-      //   this.renderTiles()
-      //   scaleNum += 0.01
-      //   window.requestAnimationFrame(fn)
-      // }
-      // window.requestAnimationFrame(fn)
       clearTimeout(this.zoomTimer)
       this.zoomTimer = setTimeout(() => {
         this.clear()
