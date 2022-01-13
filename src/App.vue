@@ -1,7 +1,7 @@
 <template>
   <div class="map" ref="map">
     <canvas ref="canvas" @mousedown="onMousedown"></canvas>
-    <div class="center">{{this.center[0] + ',' + this.center[1]}}</div>
+    <div class="center">{{ this.center[0] + ',' + this.center[1] }}</div>
     <div class="line lineX"></div>
     <div class="line lineY"></div>
   </div>
@@ -95,23 +95,52 @@ const getTileUrl = (x, y, z) => {
 
 // 瓦片类
 class Tile {
-  constructor(opt = {}) {
-    this.ctx = opt.ctx
-    this.url = opt.url
-    this.x = opt.x
-    this.y = opt.y
+  constructor({ ctx, row, col, zoom, x, y, shouldRender }) {
+    // 画布上下文
+    this.ctx = ctx
+    // 瓦片行列号
+    this.row = row
+    this.col = col
+    // 瓦片层级
+    this.zoom = zoom
+    // 显示位置
+    this.x = x
+    this.y = y
+    // 判断瓦片是否应该渲染
+    this.shouldRender = shouldRender
+    // 瓦片url
+    this.url = ''
+    // 缓存key
+    this.cacheKey = this.row + '_' + this.col + '_' + this.zoom
     // this.ox = opt.ox || 0
     // this.oy = opt.oy || 0
+    // 图片
     this.img = null
+    // 图片是否加载完成
     this.loaded = false
+    // 图片加载超时定时器
+    this.timer = null
+
+    this.createUrl()
     this.load()
+  }
+
+  // 生成url
+  createUrl() {
+    this.url = getTileUrl(this.row, this.col, this.zoom)
   }
 
   // 加载图片
   load() {
     this.img = new Image()
     this.img.src = this.url
+    // 加载超时，重新加载
+    this.timer = setTimeout(() => {
+      this.createUrl()
+      this.load()
+    }, 1000)
     this.img.onload = () => {
+      clearTimeout(this.timer)
       this.loaded = true
       this.render()
     }
@@ -119,7 +148,7 @@ class Tile {
 
   // 将图片渲染到canvas上
   render() {
-    if (!this.loaded) {
+    if (!this.loaded || !this.shouldRender(this.cacheKey)) {
       return
     }
     // this.ctx.drawImage(this.img, this.x + this.ox, this.y + this.oy)
@@ -161,12 +190,19 @@ export default {
       // const tileList = []
       // 缓存瓦片实例
       tileCache: {},
+      // 记录当前画布上需要的瓦片
+      currentTileCache: {},
       // 初始中心经纬度
       center: [120.148732, 30.231006], // 雷锋塔
       // 初始缩放层级
       zoom: 17,
+      // 缩放层级范围
+      minZoom: 3,
+      maxZoom: 18,
       // canvas绘图上下文
       ctx: null,
+      // 缩放定时器
+      zoomTimer: null,
     }
   },
   mounted() {
@@ -175,6 +211,7 @@ export default {
     this.renderTiles()
     window.addEventListener('mousemove', this.onMousemove)
     window.addEventListener('mouseup', this.onMouseup)
+    window.addEventListener('wheel', this.onMousewheel)
   },
   methods: {
     // 初始化画布
@@ -207,7 +244,10 @@ export default {
     // 计算显示范围内的瓦片行列号
     renderTiles() {
       // 中心点对应的瓦片
-      let centerTile = getTileRowAndCol(...lngLat2Mercator(...this.center), this.zoom)
+      let centerTile = getTileRowAndCol(
+        ...lngLat2Mercator(...this.center),
+        this.zoom
+      )
       // 中心瓦片左上角对应的像素坐标
       let centerTilePos = [centerTile[0] * TILE_SIZE, centerTile[1] * TILE_SIZE]
       // 中心点对应的像素坐标
@@ -222,6 +262,7 @@ export default {
       let centerTileIndex = [this.halfRowCount, this.halfColCount]
 
       // 渲染画布内所有瓦片
+      this.currentTileCache = {}// 清空缓存对象
       for (let i = 0; i < this.rowCount; i++) {
         for (let j = 0; j < this.colCount; j++) {
           // 当前瓦片和中心瓦片的索引差值
@@ -232,9 +273,11 @@ export default {
           // 当前瓦片的显示位置
           let x = offset[0] + offsetIndex[0] * TILE_SIZE
           let y = offset[1] + offsetIndex[1] * TILE_SIZE
-          
+
           // 方法一
           let cacheKey = row + '_' + col + '_' + this.zoom
+          // 记录当前需要的瓦片
+          this.currentTileCache[cacheKey] = true
           // 该瓦片已加载过
           if (this.tileCache[cacheKey]) {
             this.tileCache[cacheKey].updatePos(x, y).render()
@@ -242,9 +285,15 @@ export default {
             // 未加载过
             this.tileCache[cacheKey] = new Tile({
               ctx: this.ctx,
-              url: getTileUrl(row, col, this.zoom),
+              row,
+              col,
+              zoom: this.zoom,
               x,
               y,
+              // 判断瓦片是否在当前画布缓存对象上，是的话则代表需要渲染
+              shouldRender: (key) => {
+                return this.currentTileCache[key]
+              },
             })
           }
 
@@ -270,7 +319,12 @@ export default {
 
     // 清除画布
     clear() {
-      this.ctx.clearRect(-this.width / 2, -this.height / 2, this.width, this.height)
+      this.ctx.clearRect(
+        -this.width / 2,
+        -this.height / 2,
+        this.width,
+        this.height
+      )
     },
 
     // 鼠标按下
@@ -302,6 +356,35 @@ export default {
     // 鼠标松开
     onMouseup() {
       this.isMousedown = false
+    },
+
+    // 鼠标滚动
+    onMousewheel(e) {
+      if (e.deltaY > 0) {
+        // 层级变小
+        if (this.zoom > this.minZoom) this.zoom--
+      } else {
+        // 层级变大
+        if (this.zoom < this.maxZoom) this.zoom++
+      }
+
+      // let scaleNum = 1
+      // let fn = () => {
+      //   if (scaleNum >= 2) {
+      //     return
+      //   }
+      //   this.ctx.scale(scaleNum, scaleNum)
+      //   this.clear()
+      //   this.renderTiles()
+      //   scaleNum += 0.01
+      //   window.requestAnimationFrame(fn)
+      // }
+      // window.requestAnimationFrame(fn)
+      clearTimeout(this.zoomTimer)
+      this.zoomTimer = setTimeout(() => {
+        this.clear()
+        this.renderTiles()
+      }, 300)
     },
   },
 }
