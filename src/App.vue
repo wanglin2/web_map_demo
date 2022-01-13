@@ -4,7 +4,7 @@
       <component :is="comp"></component>
     </div>
     <div class="btnGroup">
-        <div class="btn" :class="{active: this.comp === 'New'}" @click="this.comp = 'New'">新版</div>
+        <div class="btn" :class="{active: this.comp === 'New'}" @click="this.comp = 'New'">优化版</div>
         <div class="btn" :class="{active: this.comp === 'Old'}" @click="this.comp = 'Old'">原始版</div>
     </div>
   </div>
