@@ -8,6 +8,8 @@
 </template>
 
 <script>
+import { animate } from 'popmotion'
+
 // 角度转弧度
 const angleToRad = (angle) => {
   return angle * (Math.PI / 180)
@@ -182,13 +184,17 @@ export default {
       center: [120.148732, 30.231006], // 雷锋塔
       // 初始缩放层级
       zoom: 17,
+
       // 缩放层级范围
       minZoom: 3,
       maxZoom: 18,
       // canvas绘图上下文
       ctx: null,
-      // 缩放定时器
-      zoomTimer: null,
+      // 缩放相关
+      lastZoom: 0,
+      scale: 1,
+      scaleTmp: 1,
+      playback: null,
     }
   },
   mounted() {
@@ -217,7 +223,7 @@ export default {
 
     // 计算需要的瓦片数量
     getCount() {
-      let paddingCount = 4
+      let paddingCount = 2
       // 水平方向需要的瓦片数量
       this.rowCount = Math.ceil(this.width / TILE_SIZE) + paddingCount
       // 垂直方向需要的瓦片数量
@@ -248,7 +254,7 @@ export default {
       let centerTileIndex = [this.halfRowCount, this.halfColCount]
 
       // 渲染画布内所有瓦片
-      this.currentTileCache = {}// 清空缓存对象
+      this.currentTileCache = {} // 清空缓存对象
       for (let i = 0; i < this.rowCount; i++) {
         for (let j = 0; j < this.colCount; j++) {
           // 当前瓦片和中心瓦片的索引差值
@@ -332,12 +338,45 @@ export default {
         // 层级变大
         if (this.zoom < this.maxZoom) this.zoom++
       }
-
-      clearTimeout(this.zoomTimer)
-      this.zoomTimer = setTimeout(() => {
-        this.clear()
-        this.renderTiles()
-      }, 300)
+      // 层级未发生改变
+      if (this.lastZoom === this.zoom) {
+        return
+      }
+      this.lastZoom = this.zoom
+      // 更新缩放比例，也就是目标缩放值
+      this.scale *= e.deltaY > 0 ? 0.5 : 2
+      // 停止上一次动画
+      if (this.playback) {
+        this.playback.stop()
+      }
+      // 开启动画
+      this.playback = animate({
+        from: this.scaleTmp, // 当前缩放值
+        to: this.scale, // 目标缩放值
+        onUpdate: (latest) => {
+          // 实时更新当前缩放值
+          this.scaleTmp = latest
+          // 保存画布之前状态，原因有二：
+          // 1.scale方法是会在之前的状态上叠加的，比如初始是1，第一次执行scale(2,2)，第二次执行scale(3,3)，最终缩放值不是3，而是6，所以每次缩放完就恢复状态，那么就相当于每次都是从初始值1开始缩放，效果就对了
+          // 2.保证缩放效果只对重新渲染已有瓦片生效，不会对最后的renderTiles()造成影响
+          this.ctx.save()
+          this.clear()
+          this.ctx.scale(latest, latest)
+          // 刷新当前画布上的瓦片
+          Object.keys(this.currentTileCache).forEach((tile) => {
+            this.tileCache[tile].render()
+          })
+          // 恢复到画布之前状态
+          this.ctx.restore()
+        },
+        onComplete: () => {
+          // 动画完成后将缩放值重置为1
+          this.scale = 1
+          this.scaleTmp = 1
+          // 根据最终缩放值重新计算需要的瓦片并渲染
+          this.renderTiles()
+        },
+      })
     },
   },
 }
