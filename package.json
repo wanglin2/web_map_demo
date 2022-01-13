@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "core-js": "^3.6.5",
+    "konva": "^8.3.2",
     "popmotion": "^11.0.3",
     "vue": "^3.0.0"
   },
