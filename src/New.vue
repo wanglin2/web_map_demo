@@ -6,7 +6,7 @@
     <div class="line lineY"></div>
     <div class="searchBox">
       <div class="searchInput">
-        <input type="text" v-model="searchText" @keyup.enter="onSearch" />
+        <input type="text" placeholder="搜索..." v-model="searchText" @keyup.enter="onSearch" />
       </div>
       <div class="searchList">
         <div
