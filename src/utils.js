@@ -82,3 +82,5 @@ export const getTileUrl = (x, y, z) => {
         domainIndexList[Math.floor(Math.random() * domainIndexList.length)]
     return `https://webrd0${domainIndex}.is.autonavi.com/appmaptile?x=${x}&y=${y}&z=${z}&lang=zh_cn&size=1&scale=1&style=8`
 }
+
+export const KEY = '0913a20b5d5a703b920e1ff0d9d26559'
