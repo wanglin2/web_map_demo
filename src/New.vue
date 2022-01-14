@@ -4,6 +4,22 @@
     <div class="center">{{ this.center[0] + ',' + this.center[1] }}</div>
     <div class="line lineX"></div>
     <div class="line lineY"></div>
+    <div class="searchBox">
+      <div class="searchInput">
+        <input type="text" v-model="searchText" @keyup.enter="onSearch" />
+      </div>
+      <div class="searchList">
+        <div
+          class="searchItem"
+          v-for="(item, index) in searchResultList"
+          :key="index"
+          @click="go(item.location)"
+        >
+          {{ item.name }}
+        </div>
+      </div>
+    </div>
+    <div class="backCenterBtn" @click="backCenter"></div>
   </div>
 </template>
 
@@ -18,6 +34,7 @@ import {
   getPxFromLngLat,
   resolutions,
   mercatorToLngLat,
+  KEY,
 } from './utils'
 
 // 瓦片类
@@ -94,8 +111,7 @@ class Tile {
     this.img.x(this.x).y(this.y)
     // 需要渐现
     if (isFadeIn && this.opacity !== 0) {
-      this.opacity = 0
-      this.img.opacity(0)
+      this.hide()
     }
     this.fadeIn()
   }
@@ -115,6 +131,12 @@ class Tile {
       }
     }, this.layer)
     anim.start()
+  }
+
+  // 隐藏
+  hide() {
+    this.opacity = 0
+    this.img.opacity(0)
   }
 
   // 更新要添加到的图层
@@ -150,9 +172,10 @@ export default {
       // 记录当前画布上需要的瓦片
       currentTileCache: {},
       // 初始中心经纬度
+      initCenter: [120.148732, 30.231006], // 雷锋塔
       center: [120.148732, 30.231006], // 雷锋塔
       // 初始缩放层级
-      zoom: 17,
+      zoom: 14,
       // 缩放层级范围
       minZoom: 3,
       maxZoom: 18,
@@ -166,9 +189,16 @@ export default {
       layer1: null,
       layer2: null,
       useLayer1: true,
+      // 搜索&移动
+      searchText: '',
+      searchResultList: [],
+      translate: [0, 0],
+      translateTmp: [0, 0],
+      translatePlayback: null,
     }
   },
-  mounted() {
+  async mounted() {
+    await this.location()
     this.init()
     this.getCount()
     this.renderTiles()
@@ -182,6 +212,23 @@ export default {
     window.removeEventListener('wheel', this.onMousewheel)
   },
   methods: {
+    // 定位
+    async location() {
+      try {
+        let response = await fetch(`https://restapi.amap.com/v3/ip?key=${KEY}`)
+        let res = await response.json()
+        let arr = res.rectangle.split(';')
+        let pos1 = arr[0].split(',')
+        let pos2 = arr[1].split(',')
+        this.initCenter = this.center = [
+          (Number(pos1[0]) + Number(pos2[0])) / 2,
+          (Number(pos1[1]) + Number(pos2[1])) / 2,
+        ]
+      } catch (error) {
+        console.log(error)
+      }
+    },
+
     // 初始化
     init() {
       // 获取容器宽高
@@ -208,7 +255,7 @@ export default {
 
     // 计算需要的瓦片数量
     getCount() {
-      let paddingCount = 2
+      let paddingCount = 4
       // 水平方向需要的瓦片数量
       this.rowCount = Math.ceil(this.width / TILE_SIZE) + paddingCount
       // 垂直方向需要的瓦片数量
@@ -295,6 +342,7 @@ export default {
         x: 1,
         y: 1,
       })
+      willLayer.x(this.width / 2).y(this.height / 2)
       willLayer.removeChildren()
       currentLayer.zIndex(0)
       willLayer.zIndex(1)
@@ -374,6 +422,81 @@ export default {
         },
       })
     },
+
+    // 搜索
+    onSearch() {
+      if (this.searchText.trim()) {
+        fetch(
+          `https://restapi.amap.com/v3/assistant/inputtips?key=${KEY}&keywords=${this.searchText.trim()}`
+        )
+          .then((response) => {
+            return response.json()
+          })
+          .then((response) => {
+            this.searchResultList = response.tips || []
+          })
+      }
+    },
+
+    // 定位到指定位置
+    go(newCenter) {
+      if (this.translatePlayback) {
+        return
+      }
+      if (typeof newCenter === 'string') {
+        newCenter = newCenter.split(',').map((item) => {
+          return Number(item)
+        })
+      }
+      // 目标位置经纬度转3857坐标
+      let newCenterMercator = lngLat2Mercator(...newCenter)
+      // 当前经纬度转3857坐标
+      let centerMercator = lngLat2Mercator(...this.center)
+      // 计算两者的距离，转换成像素
+      this.translate = [
+        (newCenterMercator[0] - centerMercator[0]) / resolutions[this.zoom],
+        (newCenterMercator[1] - centerMercator[1]) / resolutions[this.zoom],
+      ]
+      // 重置画布
+      this.resetLayer()
+      // 开启动画
+      this.translatePlayback = animate({
+        from: this.translateTmp.join(' '),
+        to: this.translate.join(' '),
+        duration: 1000,
+        onUpdate: (latest) => {
+          this.translateTmp = latest.split(' ').map((item) => {
+            return Number(item)
+          })
+          let layer = this.useLayer1 ? this.layer1 : this.layer2
+          // 画布移动
+          layer
+            .x(this.width / 2 - this.translateTmp[0])
+            .y(this.translateTmp[1] + this.height / 2)
+        },
+        onComplete: () => {
+          this.translatePlayback = null
+          // 中心点更新为目标经纬度
+          this.center = newCenter
+          this.useLayer1 = !this.useLayer1
+          this.translateTmp = [0, 0]
+          this.translate = [0, 0]
+          // 当前不在画布上的瓦片透明度都恢复成0
+          Object.keys(this.tileCache).forEach((cacheKey) => {
+            if (!this.currentTileCache[cacheKey]) {
+              this.tileCache[cacheKey].hide()
+            }
+          })
+          // 重新渲染瓦片
+          this.renderTiles()
+        },
+      })
+    },
+
+    // 回到初始位置
+    backCenter() {
+      this.go(this.initCenter)
+    },
   },
 }
 </script>
@@ -385,6 +508,12 @@ export default {
   height: 100%;
   left: 0;
   top: 0;
+}
+
+.map * {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 .mapBox {
@@ -416,5 +545,57 @@ export default {
   left: 50%;
   top: 50%;
   transform: translateX(-50%);
+}
+
+.searchBox {
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  width: 200px;
+}
+
+.searchInput {
+  width: 100%;
+  height: 30px;
+}
+
+.searchInput input {
+  width: 100%;
+  height: 100%;
+  padding: 0 10px;
+}
+
+.searchList {
+  position: absolute;
+  left: 0px;
+  top: 35px;
+  width: 100%;
+  background-color: #fff;
+}
+
+.searchList .searchItem {
+  width: 100%;
+  height: 30px;
+  line-height: 30px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.searchList .searchItem:hover {
+  background-color: #f5f5f5;
+}
+
+.backCenterBtn {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  width: 50px;
+  height: 50px;
+  background-image: url('./assets/location.png');
+  background-size: cover;
+  cursor: pointer;
 }
 </style>

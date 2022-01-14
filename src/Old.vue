@@ -152,7 +152,7 @@ export default {
 
     // 计算需要的瓦片数量
     getCount() {
-      let paddingCount = 2
+      let paddingCount = 4
       // 水平方向需要的瓦片数量
       this.rowCount = Math.ceil(this.width / TILE_SIZE) + paddingCount
       // 垂直方向需要的瓦片数量
