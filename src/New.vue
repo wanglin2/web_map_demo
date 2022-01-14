@@ -6,7 +6,12 @@
     <div class="line lineY"></div>
     <div class="searchBox">
       <div class="searchInput">
-        <input type="text" placeholder="搜索..." v-model="searchText" @keyup.enter="onSearch" />
+        <input
+          type="text"
+          placeholder="搜索..."
+          v-model="searchText"
+          @keyup.enter="onSearch"
+        />
       </div>
       <div class="searchList">
         <div
@@ -255,7 +260,7 @@ export default {
 
     // 计算需要的瓦片数量
     getCount() {
-      let paddingCount = 4
+      let paddingCount = 0
       // 水平方向需要的瓦片数量
       this.rowCount = Math.ceil(this.width / TILE_SIZE) + paddingCount
       // 垂直方向需要的瓦片数量
@@ -283,12 +288,12 @@ export default {
       ]
 
       // 中心瓦片的索引
-      let centerTileIndex = [this.halfRowCount, this.halfColCount]
+      let centerTileIndex = [0, 0]
 
       // 渲染画布内所有瓦片
       this.currentTileCache = {} // 清空缓存对象
-      for (let i = 0; i < this.rowCount; i++) {
-        for (let j = 0; j < this.colCount; j++) {
+      for (let i = -this.halfRowCount; i <= this.halfRowCount; i++) {
+        for (let j = -this.halfColCount; j <= this.halfColCount; j++) {
           // 当前瓦片和中心瓦片的索引差值
           let offsetIndex = [centerTileIndex[0] - i, centerTileIndex[1] - j]
           // 当前瓦片的行列号
