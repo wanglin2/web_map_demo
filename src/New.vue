@@ -1,15 +1,17 @@
 <template>
   <div class="map" ref="map">
     <div class="mapBox" ref="mapBox" @mousedown="onMousedown"></div>
-    <div class="center">{{ this.center[0] + ',' + this.center[1] }}</div>
+    <!-- 中心点十字架 -->
     <div class="line lineX"></div>
     <div class="line lineY"></div>
+    <!-- 搜索框 -->
     <div class="searchBox">
       <div class="searchInput">
         <input
           type="text"
           placeholder="搜索..."
           v-model="searchText"
+          @input="onSearch"
           @keyup.enter="onSearch"
         />
       </div>
@@ -24,13 +26,28 @@
         </div>
       </div>
     </div>
+    <!-- 经纬度框 -->
+    <div class="posInput">
+      <input
+        type="text"
+        placeholder="经纬度..."
+        v-model="posValue"
+        @keyup.enter="onChangePos"
+      />
+    </div>
+    <!-- 返回到初始中心点按钮 -->
     <div class="backCenterBtn" @click="backCenter"></div>
+    <!-- 放大缩小按钮 -->
+    <div class="scaleBtnBox">
+      <div class="scaleBtn in" :class="{disabled: zoom >= maxZoom}" @click="zoomIn"></div>
+      <div class="scaleBtn out" :class="{disabled: zoom <= minZoom}" @click="zoomOut"></div>
+    </div>
   </div>
 </template>
 
 <script>
-import { animate } from 'popmotion'
-import Konva from 'konva'
+import { animate } from "popmotion";
+import Konva from "konva";
 import {
   getTileUrl,
   TILE_SIZE,
@@ -40,136 +57,131 @@ import {
   resolutions,
   mercatorToLngLat,
   KEY,
-} from './utils'
+} from "./utils";
 
 // 瓦片类
 class Tile {
   constructor({ layer, row, col, zoom, x, y, shouldRender }) {
     // 瓦片显示图层
-    this.layer = layer
+    this.layer = layer;
     // 瓦片行列号
-    this.row = row
-    this.col = col
+    this.row = row;
+    this.col = col;
     // 瓦片层级
-    this.zoom = zoom
+    this.zoom = zoom;
     // 显示位置
-    this.x = x
-    this.y = y
+    this.x = x;
+    this.y = y;
     // 判断瓦片是否应该渲染
-    this.shouldRender = shouldRender
+    this.shouldRender = shouldRender;
     // 瓦片url
-    this.url = ''
+    this.url = "";
     // 缓存key
-    this.cacheKey = this.row + '_' + this.col + '_' + this.zoom
+    this.cacheKey = this.row + "_" + this.col + "_" + this.zoom;
     // 瓦片图片
-    this.img = null
+    this.img = null;
     // 瓦片透明度
-    this.opacity = 0
+    this.opacity = 0;
     // 图片是否加载完成
-    this.loaded = false
+    this.loaded = false;
     // 图片加载超时定时器
-    this.timer = null
+    this.timer = null;
     // 瓦片渐现过渡时间
-    this.fadeInDuration = 500
+    this.fadeInDuration = 500;
 
-    this.createUrl()
-    this.load()
+    this.createUrl();
+    this.load();
   }
 
   // 生成url
   createUrl() {
-    this.url = getTileUrl(this.row, this.col, this.zoom)
+    this.url = getTileUrl(this.row, this.col, this.zoom);
   }
 
   // 加载图片
   load() {
-    let img = new Image()
-    img.src = this.url
+    let img = new Image();
+    img.src = this.url;
     // 加载超时，重新加载
     this.timer = setTimeout(() => {
-      this.createUrl()
-      this.load()
-    }, 1000)
+      this.createUrl();
+      this.load();
+    }, 1000);
     // 加载完成
     img.onload = () => {
-      clearTimeout(this.timer)
+      clearTimeout(this.timer);
       // 创建图片元素
       this.img = new Konva.Image({
         image: img,
         width: TILE_SIZE,
         height: TILE_SIZE,
         opacity: this.opacity,
-      })
-      this.loaded = true
-      this.render()
-    }
+      });
+      this.loaded = true;
+      this.render();
+    };
   }
 
   // 渲染
   render(isFadeIn = false) {
     if (!this.loaded || !this.shouldRender(this.cacheKey)) {
-      return
+      return;
     }
     // 添加到图层
-    this.layer.add(this.img)
+    this.layer.add(this.img);
     // 设置显示位置
-    this.img.x(this.x).y(this.y)
+    this.img.x(this.x).y(this.y);
     // 需要渐现
     if (isFadeIn && this.opacity !== 0) {
-      this.hide()
+      this.hide();
     }
-    this.fadeIn()
+    this.fadeIn();
   }
 
   // 渐现
   fadeIn() {
     if (this.opacity >= 1) {
-      return
+      return;
     }
-    let base = this.opacity
+    let base = this.opacity;
     let anim = new Konva.Animation((frame) => {
-      let opacity = (frame.time / this.fadeInDuration) * 1 + base
-      this.opacity = opacity
-      this.img.opacity(opacity)
+      let opacity = (frame.time / this.fadeInDuration) * 1 + base;
+      this.opacity = opacity;
+      this.img.opacity(opacity);
       if (opacity >= 1) {
-        anim.stop()
+        anim.stop();
       }
-    }, this.layer)
-    anim.start()
+    }, this.layer);
+    anim.start();
   }
 
   // 隐藏
   hide() {
-    this.opacity = 0
-    this.img.opacity(0)
+    this.opacity = 0;
+    this.img.opacity(0);
   }
 
   // 更新要添加到的图层
   updateLayer(layer) {
-    this.layer = layer
-    return this
+    this.layer = layer;
+    return this;
   }
 
   // 更新位置
   updatePos(x, y) {
-    this.x = x
-    this.y = y
-    return this
+    this.x = x;
+    this.y = y;
+    return this;
   }
 }
 
 export default {
-  name: 'App',
+  name: "App",
   data() {
     return {
       // 画布宽高
       width: 0,
       height: 0,
-      // 画布需要的瓦片数量
-      rowCount: 0,
-      colCount: 0,
-      halfRowCount: 0,
-      halfColCount: 0,
       // 鼠标按下标志
       isMousedown: false,
       // 缓存瓦片实例
@@ -195,79 +207,74 @@ export default {
       layer2: null,
       useLayer1: true,
       // 搜索&移动
-      searchText: '',
+      searchText: "",
+      searchTimer: null,
       searchResultList: [],
       translate: [0, 0],
       translateTmp: [0, 0],
       translatePlayback: null,
-    }
+      // 经纬度框
+      posValue: "",
+    };
+  },
+  watch: {
+    center(val) {
+      this.posValue = val.join(",");
+    },
   },
   async mounted() {
-    await this.location()
-    this.init()
-    this.getCount()
-    this.renderTiles()
-    window.addEventListener('mousemove', this.onMousemove)
-    window.addEventListener('mouseup', this.onMouseup)
-    window.addEventListener('wheel', this.onMousewheel)
+    await this.location();
+    this.init();
+    this.renderTiles();
+    window.addEventListener("mousemove", this.onMousemove);
+    window.addEventListener("mouseup", this.onMouseup);
+    window.addEventListener("wheel", this.onMousewheel);
   },
   beforeUnmount() {
-    window.removeEventListener('mousemove', this.onMousemove)
-    window.removeEventListener('mouseup', this.onMouseup)
-    window.removeEventListener('wheel', this.onMousewheel)
+    window.removeEventListener("mousemove", this.onMousemove);
+    window.removeEventListener("mouseup", this.onMouseup);
+    window.removeEventListener("wheel", this.onMousewheel);
   },
   methods: {
     // 定位
     async location() {
       try {
-        let response = await fetch(`https://restapi.amap.com/v3/ip?key=${KEY}`)
-        let res = await response.json()
-        let arr = res.rectangle.split(';')
-        let pos1 = arr[0].split(',')
-        let pos2 = arr[1].split(',')
+        let response = await fetch(`https://restapi.amap.com/v3/ip?key=${KEY}`);
+        let res = await response.json();
+        let arr = res.rectangle.split(";");
+        let pos1 = arr[0].split(",");
+        let pos2 = arr[1].split(",");
         this.initCenter = this.center = [
           (Number(pos1[0]) + Number(pos2[0])) / 2,
           (Number(pos1[1]) + Number(pos2[1])) / 2,
-        ]
+        ];
       } catch (error) {
-        console.log(error)
+        console.log(error);
       }
     },
 
     // 初始化
     init() {
       // 获取容器宽高
-      let { width, height } = this.$refs.mapBox.getBoundingClientRect()
-      this.width = width
-      this.height = height
+      let { width, height } = this.$refs.mapBox.getBoundingClientRect();
+      this.width = width;
+      this.height = height;
 
       // 创建舞台
       this.stage = new Konva.Stage({
         container: this.$refs.mapBox,
         width,
         height,
-      })
+      });
 
       // 创建两个图层
-      this.layer1 = new Konva.Layer()
-      this.layer1.x(this.width / 2).y(this.height / 2)
-      this.stage.add(this.layer1)
+      this.layer1 = new Konva.Layer();
+      this.layer1.x(this.width / 2).y(this.height / 2);
+      this.stage.add(this.layer1);
 
-      this.layer2 = new Konva.Layer()
-      this.layer2.x(this.width / 2).y(this.height / 2)
-      this.stage.add(this.layer2)
-    },
-
-    // 计算需要的瓦片数量
-    getCount() {
-      let paddingCount = 0
-      // 水平方向需要的瓦片数量
-      this.rowCount = Math.ceil(this.width / TILE_SIZE) + paddingCount
-      // 垂直方向需要的瓦片数量
-      this.colCount = Math.ceil(this.height / TILE_SIZE) + paddingCount
-      // 瓦片数量的一半
-      this.halfRowCount = Math.ceil(this.rowCount / 2)
-      this.halfColCount = Math.ceil(this.colCount / 2)
+      this.layer2 = new Konva.Layer();
+      this.layer2.x(this.width / 2).y(this.height / 2);
+      this.stage.add(this.layer2);
     },
 
     // 计算显示范围内的瓦片行列号
@@ -276,43 +283,49 @@ export default {
       let centerTile = getTileRowAndCol(
         ...lngLat2Mercator(...this.center),
         this.zoom
-      )
+      );
       // 中心瓦片左上角对应的像素坐标
-      let centerTilePos = [centerTile[0] * TILE_SIZE, centerTile[1] * TILE_SIZE]
+      let centerTilePos = [
+        centerTile[0] * TILE_SIZE,
+        centerTile[1] * TILE_SIZE,
+      ];
       // 中心点对应的像素坐标
-      let centerPos = getPxFromLngLat(...this.center, this.zoom)
-      // 中心瓦片左上角距中心像素坐标的差值
+      let centerPos = getPxFromLngLat(...this.center, this.zoom);
+      // 中心像素坐标距中心瓦片左上角的差值
       let offset = [
-        centerTilePos[0] - centerPos[0],
-        centerTilePos[1] - centerPos[1],
-      ]
-
-      // 中心瓦片的索引
-      let centerTileIndex = [0, 0]
-
+        centerPos[0] - centerTilePos[0],
+        centerPos[1] - centerTilePos[1],
+      ];
+      // 计算瓦片数量
+      let rowMinNum = Math.ceil((this.width / 2 - offset[0]) / TILE_SIZE);
+      let colMinNum = Math.ceil((this.height / 2 - offset[1]) / TILE_SIZE);
+      let rowMaxNum = Math.ceil(
+        (this.width / 2 - (TILE_SIZE - offset[0])) / TILE_SIZE
+      );
+      let colMaxNum = Math.ceil(
+        (this.height / 2 - (TILE_SIZE - offset[1])) / TILE_SIZE
+      );
       // 渲染画布内所有瓦片
-      this.currentTileCache = {} // 清空缓存对象
-      for (let i = -this.halfRowCount; i <= this.halfRowCount; i++) {
-        for (let j = -this.halfColCount; j <= this.halfColCount; j++) {
-          // 当前瓦片和中心瓦片的索引差值
-          let offsetIndex = [centerTileIndex[0] - i, centerTileIndex[1] - j]
+      this.currentTileCache = {}; // 清空缓存对象
+      for (let i = -rowMinNum; i <= rowMaxNum; i++) {
+        for (let j = -colMinNum; j <= colMaxNum; j++) {
           // 当前瓦片的行列号
-          let row = centerTile[0] + offsetIndex[0]
-          let col = centerTile[1] + offsetIndex[1]
+          let row = centerTile[0] + i;
+          let col = centerTile[1] + j;
           // 当前瓦片的显示位置
-          let x = offset[0] + offsetIndex[0] * TILE_SIZE
-          let y = offset[1] + offsetIndex[1] * TILE_SIZE
+          let x = i * TILE_SIZE - offset[0];
+          let y = j * TILE_SIZE - offset[1];
           // 缓存key
-          let cacheKey = row + '_' + col + '_' + this.zoom
+          let cacheKey = row + "_" + col + "_" + this.zoom;
           // 记录当前需要的瓦片
-          this.currentTileCache[cacheKey] = true
+          this.currentTileCache[cacheKey] = true;
           // 该瓦片已加载过
-          let layer = this.useLayer1 ? this.layer1 : this.layer2
+          let layer = this.useLayer1 ? this.layer1 : this.layer2;
           if (this.tileCache[cacheKey]) {
             this.tileCache[cacheKey]
               .updateLayer(layer)
               .updatePos(x, y)
-              .render(isFadeIn)
+              .render(isFadeIn);
           } else {
             // 未加载过
             this.tileCache[cacheKey] = new Tile({
@@ -324,9 +337,9 @@ export default {
               y,
               // 判断瓦片是否在当前画布缓存对象上，是的话则代表需要渲染
               shouldRender: (key) => {
-                return this.currentTileCache[key]
+                return this.currentTileCache[key];
               },
-            })
+            });
           }
         }
       }
@@ -334,176 +347,206 @@ export default {
 
     // 清空图层
     clearLayer() {
-      this.layer1.removeChildren()
-      this.layer2.removeChildren()
+      this.layer1.removeChildren();
+      this.layer2.removeChildren();
     },
 
     // 重置图层
     resetLayer() {
       // 如果当前元素显示在图层1，那么即将切换为图层2，所以将图层二的缩放复位、清空旧的元素、置顶显示，反之亦然
-      let currentLayer = this.useLayer1 ? this.layer1 : this.layer2
-      let willLayer = this.useLayer1 ? this.layer2 : this.layer1
+      let currentLayer = this.useLayer1 ? this.layer1 : this.layer2;
+      let willLayer = this.useLayer1 ? this.layer2 : this.layer1;
       willLayer.scale({
         x: 1,
         y: 1,
-      })
-      willLayer.x(this.width / 2).y(this.height / 2)
-      willLayer.removeChildren()
-      currentLayer.zIndex(0)
-      willLayer.zIndex(1)
+      });
+      willLayer.x(this.width / 2).y(this.height / 2);
+      willLayer.removeChildren();
+      currentLayer.zIndex(0);
+      willLayer.zIndex(1);
     },
 
     // 鼠标按下
     onMousedown(e) {
       if (e.which === 1) {
-        this.isMousedown = true
+        this.isMousedown = true;
       }
     },
 
     // 鼠标移动
     onMousemove(e) {
       if (!this.isMousedown) {
-        return
+        return;
       }
       // 计算本次拖动的距离对应的经纬度数据
-      let mx = e.movementX * resolutions[this.zoom]
-      let my = e.movementY * resolutions[this.zoom]
-      let [x, y] = lngLat2Mercator(...this.center)
+      let mx = e.movementX * resolutions[this.zoom];
+      let my = e.movementY * resolutions[this.zoom];
+      let [x, y] = lngLat2Mercator(...this.center);
       // 更新拖动后的中心点经纬度
-      this.center = mercatorToLngLat(x - mx, my + y)
+      this.center = mercatorToLngLat(x - mx, my + y);
       // 清除画布重新渲染瓦片
-      this.clearLayer()
-      this.renderTiles()
+      this.clearLayer();
+      this.renderTiles();
     },
 
     // 鼠标松开
     onMouseup() {
-      this.isMousedown = false
+      this.isMousedown = false;
     },
 
     // 鼠标滚动
     onMousewheel(e) {
       if (e.deltaY > 0) {
+        this.zoomOut();
+      } else {
+        this.zoomIn();
+      }
+    },
+
+    // 放大
+    zoomIn() {
+      this.scaleMap(true);
+    },
+
+    // 缩小
+    zoomOut() {
+      this.scaleMap(false);
+    },
+
+    // 缩放
+    scaleMap(zoomIn) {
+      if (!zoomIn) {
         // 层级变小
-        if (this.zoom > this.minZoom) this.zoom--
+        if (this.zoom > this.minZoom) this.zoom--;
       } else {
         // 层级变大
-        if (this.zoom < this.maxZoom) this.zoom++
+        if (this.zoom < this.maxZoom) this.zoom++;
       }
       // 层级未发生改变
       if (this.lastZoom === this.zoom) {
-        return
+        return;
       }
-      this.lastZoom = this.zoom
+      this.lastZoom = this.zoom;
       // 更新缩放比例，也就是目标缩放值
-      this.scale *= e.deltaY > 0 ? 0.5 : 2
+      this.scale *= !zoomIn > 0 ? 0.5 : 2;
       // 停止上一次动画
       if (this.playback) {
-        this.playback.stop()
+        this.playback.stop();
       }
       // 图层重置
-      this.resetLayer()
+      this.resetLayer();
       // 开启动画
       this.playback = animate({
         from: this.scaleTmp, // 当前缩放值
         to: this.scale, // 目标缩放值
         onUpdate: (latest) => {
+          console.log(latest);
           // 实时更新当前缩放值
-          this.scaleTmp = latest
-          let layer = this.useLayer1 ? this.layer1 : this.layer2
+          this.scaleTmp = latest;
+          let layer = this.useLayer1 ? this.layer1 : this.layer2;
           layer.scale({
             x: latest,
             y: latest,
-          })
+          });
         },
         onComplete: () => {
           // 切换图层
-          this.useLayer1 = !this.useLayer1
+          this.useLayer1 = !this.useLayer1;
           // 动画完成后将缩放值重置为1
-          this.scale = 1
-          this.scaleTmp = 1
+          this.scale = 1;
+          this.scaleTmp = 1;
           // 根据最终缩放值重新计算需要的瓦片并渲染
-          this.renderTiles(true)
+          this.renderTiles(true);
         },
-      })
+      });
     },
 
     // 搜索
     onSearch() {
-      if (this.searchText.trim()) {
-        fetch(
-          `https://restapi.amap.com/v3/assistant/inputtips?key=${KEY}&keywords=${this.searchText.trim()}`
-        )
-          .then((response) => {
-            return response.json()
-          })
-          .then((response) => {
-            this.searchResultList = response.tips || []
-          })
-      }
+      clearTimeout(this.searchTimer);
+      this.searchTimer = setTimeout(() => {
+        if (this.searchText.trim()) {
+          fetch(
+            `https://restapi.amap.com/v3/assistant/inputtips?key=${KEY}&keywords=${this.searchText.trim()}`
+          )
+            .then((response) => {
+              return response.json();
+            })
+            .then((response) => {
+              this.searchResultList = response.tips || [];
+            });
+        } else {
+          this.searchResultList = [];
+        }
+      }, 300);
     },
 
     // 定位到指定位置
     go(newCenter) {
       if (this.translatePlayback) {
-        return
+        return;
       }
-      if (typeof newCenter === 'string') {
-        newCenter = newCenter.split(',').map((item) => {
-          return Number(item)
-        })
+      if (typeof newCenter === "string") {
+        newCenter = newCenter.split(",").map((item) => {
+          return Number(item);
+        });
       }
       // 目标位置经纬度转3857坐标
-      let newCenterMercator = lngLat2Mercator(...newCenter)
+      let newCenterMercator = lngLat2Mercator(...newCenter);
       // 当前经纬度转3857坐标
-      let centerMercator = lngLat2Mercator(...this.center)
+      let centerMercator = lngLat2Mercator(...this.center);
       // 计算两者的距离，转换成像素
       this.translate = [
         (newCenterMercator[0] - centerMercator[0]) / resolutions[this.zoom],
         (newCenterMercator[1] - centerMercator[1]) / resolutions[this.zoom],
-      ]
+      ];
       // 重置画布
-      this.resetLayer()
+      this.resetLayer();
       // 开启动画
       this.translatePlayback = animate({
-        from: this.translateTmp.join(' '),
-        to: this.translate.join(' '),
+        from: this.translateTmp.join(" "),
+        to: this.translate.join(" "),
         duration: 1000,
         onUpdate: (latest) => {
-          this.translateTmp = latest.split(' ').map((item) => {
-            return Number(item)
-          })
-          let layer = this.useLayer1 ? this.layer1 : this.layer2
+          this.translateTmp = latest.split(" ").map((item) => {
+            return Number(item);
+          });
+          let layer = this.useLayer1 ? this.layer1 : this.layer2;
           // 画布移动
           layer
             .x(this.width / 2 - this.translateTmp[0])
-            .y(this.translateTmp[1] + this.height / 2)
+            .y(this.translateTmp[1] + this.height / 2);
         },
         onComplete: () => {
-          this.translatePlayback = null
+          this.translatePlayback = null;
           // 中心点更新为目标经纬度
-          this.center = newCenter
-          this.useLayer1 = !this.useLayer1
-          this.translateTmp = [0, 0]
-          this.translate = [0, 0]
+          this.center = newCenter;
+          this.useLayer1 = !this.useLayer1;
+          this.translateTmp = [0, 0];
+          this.translate = [0, 0];
           // 当前不在画布上的瓦片透明度都恢复成0
           Object.keys(this.tileCache).forEach((cacheKey) => {
             if (!this.currentTileCache[cacheKey]) {
-              this.tileCache[cacheKey].hide()
+              this.tileCache[cacheKey].hide();
             }
-          })
+          });
           // 重新渲染瓦片
-          this.renderTiles()
+          this.renderTiles();
         },
-      })
+      });
     },
 
     // 回到初始位置
     backCenter() {
-      this.go(this.initCenter)
+      this.go(this.initCenter);
+    },
+
+    // 切换经纬度
+    onChangePos() {
+      this.go(this.posValue);
     },
   },
-}
+};
 </script>
 
 <style scoped>
@@ -513,6 +556,9 @@ export default {
   height: 100%;
   left: 0;
   top: 0;
+  background-color: rgb(244, 244, 244);
+  background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0CAYAAADL1t+KAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyhpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNi1jMDY3IDc5LjE1Nzc0NywgMjAxNS8wMy8zMC0yMzo0MDo0MiAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTUgKE1hY2ludG9zaCkiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6RTI0RTg4NzlGRDk5MTFFNjlDNTFBODNCMUQwNzgyQjgiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6RTI0RTg4N0FGRDk5MTFFNjlDNTFBODNCMUQwNzgyQjgiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDpFMjRFODg3N0ZEOTkxMUU2OUM1MUE4M0IxRDA3ODJCOCIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDpFMjRFODg3OEZEOTkxMUU2OUM1MUE4M0IxRDA3ODJCOCIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PmlSGaMAAAujSURBVHja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);
+  background-repeat: repeat;
 }
 
 .map * {
@@ -532,17 +578,19 @@ export default {
 }
 
 .lineX {
-  left: 0;
+  left: 50%;
   top: 50%;
-  width: 100%;
-  height: 1px;
+  transform: translate(-50%, -50%);
+  width: 50px;
+  height: 2px;
 }
 
 .lineY {
   left: 50%;
-  top: 0;
-  height: 100%;
-  width: 1px;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  height: 50px;
+  width: 2px;
 }
 
 .center {
@@ -564,7 +612,8 @@ export default {
   height: 30px;
 }
 
-.searchInput input {
+.searchInput input,
+.posInput input {
   width: 100%;
   height: 100%;
   padding: 0 10px;
@@ -593,14 +642,54 @@ export default {
   background-color: #f5f5f5;
 }
 
+.posInput {
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  width: 300px;
+  height: 30px;
+}
+
 .backCenterBtn {
   position: absolute;
   right: 20px;
   bottom: 20px;
   width: 50px;
   height: 50px;
-  background-image: url('./assets/location.png');
+  background-image: url("./assets/location.png");
   background-size: cover;
   cursor: pointer;
+}
+
+.scaleBtnBox {
+  position: absolute;
+  right: 30px;
+  bottom: 80px;
+  width: 29px;
+  height: 73px;
+  padding: 0 2px;
+  background: #fff;
+  border-radius: 3px;
+}
+
+.scaleBtn {
+  width: 24px;
+  height: 36px;
+  margin: 0 auto;
+  background: url("./assets/scale.png") no-repeat;
+  cursor: pointer;
+}
+
+.scaleBtn.in {
+  background-position: -3px 3px;
+  border-bottom: 1px #dfdfdf solid;
+}
+
+.scaleBtn.out {
+  background-position: -3px -156px;
+}
+
+.scaleBtn.disabled {
+  opacity: 0.2;
 }
 </style>
