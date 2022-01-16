@@ -39,14 +39,22 @@
     <div class="backCenterBtn" @click="backCenter"></div>
     <!-- 放大缩小按钮 -->
     <div class="scaleBtnBox">
-      <div class="scaleBtn in" :class="{disabled: zoom >= maxZoom}" @click="zoomIn"></div>
-      <div class="scaleBtn out" :class="{disabled: zoom <= minZoom}" @click="zoomOut"></div>
+      <div
+        class="scaleBtn in"
+        :class="{ disabled: zoom >= maxZoom }"
+        @click="zoomIn"
+      ></div>
+      <div
+        class="scaleBtn out"
+        :class="{ disabled: zoom <= minZoom }"
+        @click="zoomOut"
+      ></div>
     </div>
   </div>
 </template>
 
 <script>
-import { animate } from "popmotion";
+import { animate, easeOut } from "popmotion";
 import Konva from "konva";
 import {
   getTileUrl,
@@ -184,6 +192,10 @@ export default {
       height: 0,
       // 鼠标按下标志
       isMousedown: false,
+      lastMouseEvent: null,
+      lastMouseTime: null,
+      lastDuration: 0,
+      lastDistance: 0,
       // 缓存瓦片实例
       tileCache: {},
       // 记录当前画布上需要的瓦片
@@ -378,6 +390,16 @@ export default {
       if (!this.isMousedown) {
         return;
       }
+      let curTime = Date.now();
+      if (this.lastMouseTime) {
+        this.lastDuration = curTime - this.lastMouseTime;
+        this.lastDistance = [
+          e.clientX - this.lastMouseEvent.clientX,
+          e.clientY - this.lastMouseEvent.clientY,
+        ];
+      }
+      this.lastMouseEvent = e;
+      this.lastMouseTime = curTime;
       // 计算本次拖动的距离对应的经纬度数据
       let mx = e.movementX * resolutions[this.zoom];
       let my = e.movementY * resolutions[this.zoom];
@@ -391,7 +413,54 @@ export default {
 
     // 鼠标松开
     onMouseup() {
+      if (this.translatePlayback) {
+        this.translatePlayback.stop();
+      }
       this.isMousedown = false;
+      let speedX = this.lastDistance[0] / this.lastDuration;
+      let speedY = this.lastDistance[1] / this.lastDuration;
+      this.translate = [speedX / 0.005, speedY / 0.005];
+      // 图层重置
+      this.resetLayer();
+      this.translatePlayback = animate({
+        from: this.translateTmp.join(" "),
+        to: this.translate.join(" "),
+        ease: easeOut,
+        onUpdate: (latest) => {
+          this.translateTmp = latest.split(" ").map((item) => {
+            return Number(item);
+          });
+          let layer = this.useLayer1 ? this.layer1 : this.layer2;
+          // 画布移动
+          layer
+            .x(this.width / 2 + this.translateTmp[0])
+            .y(this.height / 2 + this.translateTmp[1]);
+        },
+        onComplete: () => {
+          this.translatePlayback = null;
+          // 中心点更新为目标经纬度
+          // 计算本次拖动的距离对应的经纬度数据
+          let mx = this.translate[0] * resolutions[this.zoom];
+          let my = this.translate[1] * resolutions[this.zoom];
+          let [x, y] = lngLat2Mercator(...this.center);
+          // 更新拖动后的中心点经纬度
+          this.center = this.center = mercatorToLngLat(x - mx, my + y);
+          this.useLayer1 = !this.useLayer1;
+          this.translateTmp = [0, 0];
+          this.translate = [0, 0];
+          this.lastMouseTime = null;
+          this.lastDuration = 0;
+          this.lastDistance = [];
+          // 当前不在画布上的瓦片透明度都恢复成0
+          Object.keys(this.tileCache).forEach((cacheKey) => {
+            if (!this.currentTileCache[cacheKey]) {
+              this.tileCache[cacheKey].hide();
+            }
+          });
+          // 重新渲染瓦片
+          this.renderTiles();
+        },
+      });
     },
 
     // 鼠标滚动
@@ -439,8 +508,8 @@ export default {
       this.playback = animate({
         from: this.scaleTmp, // 当前缩放值
         to: this.scale, // 目标缩放值
+        duration: 500,
         onUpdate: (latest) => {
-          console.log(latest);
           // 实时更新当前缩放值
           this.scaleTmp = latest;
           let layer = this.useLayer1 ? this.layer1 : this.layer2;
