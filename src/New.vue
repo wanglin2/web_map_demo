@@ -13,6 +13,7 @@
           v-model="searchText"
           @input="onSearch"
           @keyup.enter="onSearch"
+          @click.stop
         />
       </div>
       <div class="searchList">
@@ -33,21 +34,22 @@
         placeholder="经纬度..."
         v-model="posValue"
         @keyup.enter="onChangePos"
+        @click.stop
       />
     </div>
     <!-- 返回到初始中心点按钮 -->
-    <div class="backCenterBtn" @click="backCenter"></div>
+    <div class="backCenterBtn" @click.stop="backCenter"></div>
     <!-- 放大缩小按钮 -->
     <div class="scaleBtnBox">
       <div
         class="scaleBtn in"
         :class="{ disabled: zoom >= maxZoom }"
-        @click="zoomIn"
+        @click.stop="zoomIn"
       ></div>
       <div
         class="scaleBtn out"
         :class="{ disabled: zoom <= minZoom }"
-        @click="zoomOut"
+        @click.stop="zoomOut"
       ></div>
     </div>
   </div>
@@ -95,7 +97,7 @@ class Tile {
     // 图片加载超时定时器
     this.timer = null;
     // 瓦片渐现过渡时间
-    this.fadeInDuration = 500;
+    this.fadeInDuration = 400;
 
     this.createUrl();
     this.load();
@@ -132,7 +134,7 @@ class Tile {
 
   // 渲染
   render(isFadeIn = false) {
-    if (!this.loaded || !this.shouldRender(this.cacheKey)) {
+    if (!this.loaded || !this.img || !this.shouldRender(this.cacheKey)) {
       return;
     }
     // 添加到图层
@@ -148,7 +150,7 @@ class Tile {
 
   // 渐现
   fadeIn() {
-    if (this.opacity >= 1) {
+    if (this.opacity >= 1 || !this.img) {
       return;
     }
     let base = this.opacity;
@@ -165,6 +167,9 @@ class Tile {
 
   // 隐藏
   hide() {
+    if (!this.img) {
+      return
+    }
     this.opacity = 0;
     this.img.opacity(0);
   }
@@ -192,10 +197,9 @@ export default {
       height: 0,
       // 鼠标按下标志
       isMousedown: false,
-      lastMouseEvent: null,
       lastMouseTime: null,
       lastDuration: 0,
-      lastDistance: 0,
+      lastDistance: [],
       // 缓存瓦片实例
       tileCache: {},
       // 记录当前画布上需要的瓦片
@@ -332,7 +336,7 @@ export default {
           // 记录当前需要的瓦片
           this.currentTileCache[cacheKey] = true;
           // 该瓦片已加载过
-          let layer = this.useLayer1 ? this.layer1 : this.layer2;
+          let layer = this.getCurrentMainLayer();
           if (this.tileCache[cacheKey]) {
             this.tileCache[cacheKey]
               .updateLayer(layer)
@@ -366,7 +370,7 @@ export default {
     // 重置图层
     resetLayer() {
       // 如果当前元素显示在图层1，那么即将切换为图层2，所以将图层二的缩放复位、清空旧的元素、置顶显示，反之亦然
-      let currentLayer = this.useLayer1 ? this.layer1 : this.layer2;
+      let currentLayer = this.getCurrentMainLayer();
       let willLayer = this.useLayer1 ? this.layer2 : this.layer1;
       willLayer.scale({
         x: 1,
@@ -390,15 +394,12 @@ export default {
       if (!this.isMousedown) {
         return;
       }
+      // 记录本次拖动的时间段及偏移量
       let curTime = Date.now();
       if (this.lastMouseTime) {
         this.lastDuration = curTime - this.lastMouseTime;
-        this.lastDistance = [
-          e.clientX - this.lastMouseEvent.clientX,
-          e.clientY - this.lastMouseEvent.clientY,
-        ];
+        this.lastDistance = [e.movementX, e.movementY]
       }
-      this.lastMouseEvent = e;
       this.lastMouseTime = curTime;
       // 计算本次拖动的距离对应的经纬度数据
       let mx = e.movementX * resolutions[this.zoom];
@@ -413,50 +414,52 @@ export default {
 
     // 鼠标松开
     onMouseup() {
+      this.isMousedown = false;
+      this.momentum();
+    },
+
+    // 检查是否需要动量动画
+    momentum() {
+      if (this.lastDuration <= 0) {
+        this.resetTranslate();
+        return
+      }
+      // 计算最后时刻鼠标滑动的速度
+      let speedX = this.lastDistance[0] / this.lastDuration;
+      let speedY = this.lastDistance[1] / this.lastDuration;
+      // 小于该速度则不进行动量动画
+      if (Math.abs(speedX) <= 0.3 && Math.abs(speedY) <= 0.3) {
+        this.resetTranslate();
+        return
+      }
+      this.translate = [speedX / 0.005, speedY / 0.005];
+      this.resetLayer();
       if (this.translatePlayback) {
         this.translatePlayback.stop();
       }
-      this.isMousedown = false;
-      let speedX = this.lastDistance[0] / this.lastDuration;
-      let speedY = this.lastDistance[1] / this.lastDuration;
-      this.translate = [speedX / 0.005, speedY / 0.005];
-      // 图层重置
-      this.resetLayer();
       this.translatePlayback = animate({
         from: this.translateTmp.join(" "),
         to: this.translate.join(" "),
         ease: easeOut,
         onUpdate: (latest) => {
-          this.translateTmp = latest.split(" ").map((item) => {
-            return Number(item);
-          });
-          let layer = this.useLayer1 ? this.layer1 : this.layer2;
+          this.translateTmp = this.stringValueToArray(latest);
+          let layer = this.getCurrentMainLayer();
           // 画布移动
           layer
             .x(this.width / 2 + this.translateTmp[0])
             .y(this.height / 2 + this.translateTmp[1]);
         },
         onComplete: () => {
-          this.translatePlayback = null;
-          // 中心点更新为目标经纬度
           // 计算本次拖动的距离对应的经纬度数据
           let mx = this.translate[0] * resolutions[this.zoom];
           let my = this.translate[1] * resolutions[this.zoom];
           let [x, y] = lngLat2Mercator(...this.center);
           // 更新拖动后的中心点经纬度
-          this.center = this.center = mercatorToLngLat(x - mx, my + y);
+          this.center = mercatorToLngLat(x - mx, my + y);
           this.useLayer1 = !this.useLayer1;
-          this.translateTmp = [0, 0];
-          this.translate = [0, 0];
-          this.lastMouseTime = null;
-          this.lastDuration = 0;
-          this.lastDistance = [];
+          this.resetTranslate();
           // 当前不在画布上的瓦片透明度都恢复成0
-          Object.keys(this.tileCache).forEach((cacheKey) => {
-            if (!this.currentTileCache[cacheKey]) {
-              this.tileCache[cacheKey].hide();
-            }
-          });
+          this.hideTiles();
           // 重新渲染瓦片
           this.renderTiles();
         },
@@ -512,7 +515,7 @@ export default {
         onUpdate: (latest) => {
           // 实时更新当前缩放值
           this.scaleTmp = latest;
-          let layer = this.useLayer1 ? this.layer1 : this.layer2;
+          let layer = this.getCurrentMainLayer();
           layer.scale({
             x: latest,
             y: latest,
@@ -577,32 +580,55 @@ export default {
         to: this.translate.join(" "),
         duration: 1000,
         onUpdate: (latest) => {
-          this.translateTmp = latest.split(" ").map((item) => {
-            return Number(item);
-          });
-          let layer = this.useLayer1 ? this.layer1 : this.layer2;
+          this.translateTmp = this.stringValueToArray(latest);
+          let layer = this.getCurrentMainLayer();
           // 画布移动
           layer
             .x(this.width / 2 - this.translateTmp[0])
-            .y(this.translateTmp[1] + this.height / 2);
+            .y(this.height / 2 + this.translateTmp[1]);
         },
         onComplete: () => {
-          this.translatePlayback = null;
           // 中心点更新为目标经纬度
           this.center = newCenter;
           this.useLayer1 = !this.useLayer1;
-          this.translateTmp = [0, 0];
-          this.translate = [0, 0];
+          this.resetTranslate();
           // 当前不在画布上的瓦片透明度都恢复成0
-          Object.keys(this.tileCache).forEach((cacheKey) => {
-            if (!this.currentTileCache[cacheKey]) {
-              this.tileCache[cacheKey].hide();
-            }
-          });
+          this.hideTiles();
           // 重新渲染瓦片
           this.renderTiles();
         },
       });
+    },
+
+    // 复位滑动变量
+    resetTranslate() {
+      this.translatePlayback = null;
+      this.translateTmp = [0, 0];
+      this.translate = [0, 0];
+      this.lastMouseTime = null;
+      this.lastDuration = 0;
+      this.lastDistance = [];
+    },
+
+    // 当前不在画布上的瓦片透明度都恢复成0
+    hideTiles() {
+      Object.keys(this.tileCache).forEach((cacheKey) => {
+        if (!this.currentTileCache[cacheKey]) {
+          this.tileCache[cacheKey].hide();
+        }
+      });
+    },
+
+    // 空格分隔的字符串转数字数组
+    stringValueToArray(latest) {
+      return latest.split(" ").map((item) => {
+        return Number(item);
+      });
+    },
+
+    // 获取当前的主画布图层
+    getCurrentMainLayer() {
+      return this.useLayer1 ? this.layer1 : this.layer2;
     },
 
     // 回到初始位置
