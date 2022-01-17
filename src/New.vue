@@ -27,6 +27,11 @@
         </div>
       </div>
     </div>
+    <div class="mapTypeSelectBox">
+      <select v-model="selectMapType" @change="onSelectMapTypeChange">
+        <option v-for="item in mapList" :key="item.value" :value="item.value">{{item.name}}</option>
+      </select>
+    </div>
     <!-- 经纬度框 -->
     <div class="posInput">
       <input
@@ -59,7 +64,7 @@
 import { animate, easeOut } from "popmotion";
 import Konva from "konva";
 import {
-  getTileUrl,
+  getTileUrlPro,
   TILE_SIZE,
   getTileRowAndCol,
   lngLat2Mercator,
@@ -69,9 +74,48 @@ import {
   KEY,
 } from "./utils";
 
+// 图片加载类
+class Img {
+  constructor(url, onload) {
+    this.timer = null;
+    this.url = url;
+    this.onload = onload;
+    this.called = false
+    this.reloadTimes = 0;
+    this.load();
+  }
+
+  load() {
+    if (this.reloadTimes >= 5) {
+      if (!this.called) {
+        this.onload(null);
+        this.called = true
+      }
+    }
+    this.reloadTimes++
+    let img = new Image();
+    img.src = this.url;
+    // 加载超时，重新加载
+    this.timer = setTimeout(() => {
+      this.load();
+    }, 1000);
+    // 加载完成
+    img.onload = () => {
+      clearTimeout(this.timer);
+      if (!this.called) {
+        this.onload(img);
+        this.called = true
+      }
+    };
+    img.onerror = () => {
+      this.load();
+    }
+  }
+}
+
 // 瓦片类
 class Tile {
-  constructor({ layer, row, col, zoom, x, y, shouldRender }) {
+  constructor({ layer, row, col, zoom, x, y, shouldRender, getMapTypeData }) {
     // 瓦片显示图层
     this.layer = layer;
     // 瓦片行列号
@@ -84,12 +128,14 @@ class Tile {
     this.y = y;
     // 判断瓦片是否应该渲染
     this.shouldRender = shouldRender;
+    // 获取当前地图类型数据
+    this.getMapTypeData = getMapTypeData;
     // 瓦片url
-    this.url = "";
+    this.urls = [];
     // 缓存key
     this.cacheKey = this.row + "_" + this.col + "_" + this.zoom;
     // 瓦片图片
-    this.img = null;
+    this.imgs = [];
     // 瓦片透明度
     this.opacity = 0;
     // 图片是否加载完成
@@ -105,42 +151,49 @@ class Tile {
 
   // 生成url
   createUrl() {
-    this.url = getTileUrl(this.row, this.col, this.zoom);
+    let mapData = this.getMapTypeData()
+    this.urls = mapData.urls.map((url) => {
+      return getTileUrlPro(this.row, this.col, this.zoom, url, mapData.type)
+    });
   }
 
   // 加载图片
   load() {
-    let img = new Image();
-    img.src = this.url;
-    // 加载超时，重新加载
-    this.timer = setTimeout(() => {
-      this.createUrl();
-      this.load();
-    }, 1000);
-    // 加载完成
-    img.onload = () => {
-      clearTimeout(this.timer);
-      // 创建图片元素
-      this.img = new Konva.Image({
-        image: img,
-        width: TILE_SIZE,
-        height: TILE_SIZE,
-        opacity: this.opacity,
-      });
-      this.loaded = true;
-      this.render();
-    };
+    let tasks = this.urls.map((url, index) => {
+      return new Promise((resolve) => {
+        new Img(url, (img) => {
+          if (img) {
+            this.imgs[index] = new Konva.Image({
+              image: img,
+              width: TILE_SIZE,
+              height: TILE_SIZE,
+              opacity: this.opacity,
+            })
+          }
+          resolve()
+        })
+      })
+    })
+    Promise.all(tasks)
+      .then(() => {
+        this.loaded = true
+        this.render()
+      })
   }
 
   // 渲染
   render(isFadeIn = false) {
-    if (!this.loaded || !this.img || !this.shouldRender(this.cacheKey)) {
+    if (!this.loaded || this.imgs.length <= 0 || !this.shouldRender(this.cacheKey)) {
       return;
     }
     // 添加到图层
-    this.layer.add(this.img);
-    // 设置显示位置
-    this.img.x(this.x).y(this.y);
+    this.imgs.forEach((img) => {
+      if (img) {
+        this.layer.add(img);
+        // 设置显示位置
+        img.x(this.x).y(this.y);
+      }
+    });
     // 需要渐现
     if (isFadeIn && this.opacity !== 0) {
       this.hide();
@@ -150,14 +203,18 @@ class Tile {
 
   // 渐现
   fadeIn() {
-    if (this.opacity >= 1 || !this.img) {
+    if (this.opacity >= 1 || this.imgs.length <= 0) {
       return;
     }
     let base = this.opacity;
     let anim = new Konva.Animation((frame) => {
       let opacity = (frame.time / this.fadeInDuration) * 1 + base;
       this.opacity = opacity;
-      this.img.opacity(opacity);
+      this.imgs.forEach((img) => {
+        if (img) {
+          img.opacity(opacity);
+        }
+      });
       if (opacity >= 1) {
         anim.stop();
       }
@@ -167,11 +224,15 @@ class Tile {
 
   // 隐藏
   hide() {
-    if (!this.img) {
+    if (this.imgs.length <= 0) {
       return
     }
     this.opacity = 0;
-    this.img.opacity(0);
+    this.imgs.forEach((img) => {
+      if (img) {
+        img.opacity(0);
+      }
+    });
   }
 
   // 更新要添加到的图层
@@ -231,12 +292,51 @@ export default {
       translatePlayback: null,
       // 经纬度框
       posValue: "",
+      // 地图类型
+      selectMapType: '',
+      selectMapData: null,
+      mapList: [
+        {
+          name: '高德地图',
+          value: 'gaode',
+          type: 'GoogleXYZ',
+          urls: ['https://webrd0{1-4}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1&style=8']
+        },
+        {
+          name: '高德影像图',
+          value: 'gaodeImage',
+          type: 'GoogleXYZ',
+          urls: ['https://webst01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6', 'https://wprd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=8&x={x}&y={y}&z={z}&scl=1&ltype=4']
+        },
+        {
+          name: '腾讯地图',
+          value: 'tx',
+          type: 'WMTS',
+          urls: ['https://rt{1-3}.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0']
+        },
+        {
+          name: 'ArcGis在线',
+          value: 'ArcGis',
+          type: 'GoogleXYZ',
+          urls: ['https://map.geoq.cn/arcgis/rest/services/ChinaOnlineCommunity/MapServer/tile/{z}/{y}/{x}']
+        },
+        {
+          name: '必应中文',
+          value: 'bing',
+          type: 'bing',
+          urls: ['']
+        },
+      ]
     };
   },
   watch: {
     center(val) {
       this.posValue = val.join(",");
-    },
+    }
+  },
+  created() {
+    this.selectMapType = this.mapList[0].value
+    this.changeMapType()
   },
   async mounted() {
     await this.location();
@@ -252,6 +352,22 @@ export default {
     window.removeEventListener("wheel", this.onMousewheel);
   },
   methods: {
+    // 地图类型切换事件
+    onSelectMapTypeChange() {
+      this.changeMapType()
+      this.tileCache = {}
+      this.currentTileCache = {}
+      this.clearLayer()
+      this.renderTiles()
+    },
+
+    // 修改地图类型
+    changeMapType() {
+      this.selectMapData = this.mapList.find((item) => {
+        return item.value === this.selectMapType
+      })
+    },
+
     // 定位
     async location() {
       try {
@@ -355,6 +471,10 @@ export default {
               shouldRender: (key) => {
                 return this.currentTileCache[key];
               },
+              // 获取当前地图类型
+              getMapTypeData: () => {
+                return this.selectMapData
+              }
             });
           }
         }
@@ -693,6 +813,19 @@ export default {
   left: 50%;
   top: 50%;
   transform: translateX(-50%);
+}
+
+.mapTypeSelectBox {
+  position: absolute;
+  left: 230px;
+  top: 20px;
+  width: 100px;
+  height: 30px;
+}
+
+.mapTypeSelectBox select {
+  width: 100%;
+  height: 100%;
 }
 
 .searchBox {

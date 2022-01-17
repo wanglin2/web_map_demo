@@ -83,4 +83,37 @@ export const getTileUrl = (x, y, z) => {
     return `https://webrd0${domainIndex}.is.autonavi.com/appmaptile?x=${x}&y=${y}&z=${z}&lang=zh_cn&size=1&scale=1&style=8`
 }
 
+// 拼接瓦片地址
+export const getTileUrlPro = (x, y, z, url, type) => {
+    let res = url.match(/\{[\d-]+\}/)
+    let domainIndex = ''
+    if (res) {
+        let arr = res[0].slice(1, -1).split(/\s*-\s*/)
+        let domainIndexList = []
+        for (let i = Number(arr[0]); i <= Number(arr[1]); i++) {
+            domainIndexList.push(i)
+        }
+        domainIndex =
+            domainIndexList[Math.floor(Math.random() * domainIndexList.length)]
+    }
+    if (domainIndex !== '') {
+        url = url.replace(/\{[\d-]+\}/, domainIndex)
+    }
+    if (type === 'WMTS') {
+        y = -y - 1
+        y = Math.pow(2, z) + y
+    } else if (type === 'bing') {
+        var result = '',
+            zIndex = 0
+
+        for (; zIndex < z; zIndex++) {
+            result = ((x & 1) + 2 * (y & 1)).toString() + result
+            x >>= 1
+            y >>= 1
+        }
+        return 'http://dynamic.t0.tiles.ditu.live.com/comp/ch/' + result + '?it=G,VE,BX,L,LA&mkt=zh-cn,syr&n=z&og=111&ur=CN'
+    }
+    return url.replace('{x}', x).replace('{y}', y).replace('{z}', z)
+}
+
 export const KEY = '0913a20b5d5a703b920e1ff0d9d26559'
