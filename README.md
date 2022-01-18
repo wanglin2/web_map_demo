@@ -1,6 +1,6 @@
 # Web地图引擎DEMO
 
-从零开发一个十分简单的web地图引擎。
+从零开发的一个十分简单的web地图引擎。
 
 ![](./public/Snipaste.jpg)
 
