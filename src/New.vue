@@ -322,10 +322,6 @@ export default {
             }
             return resolutions
           }(),
-          transformXYZ(x, y, z) {
-            y = y - 1
-            return [x, y, z]
-          },
           // 自定义经纬度和墨卡托坐标转换方法
           lngLatToMercator(lng, lat) {
             return gcoord.transform(
@@ -472,7 +468,7 @@ export default {
       ];
       // 中心点对应的像素坐标
       let centerPos = getPxFromLngLat(...center, this.zoom, plusOpt);
-      // 中心像素坐标距中心瓦片左上角的差值
+      // 中心像素坐标距中心瓦片左上/下角的差值
       let offset = [
         centerPos[0] - centerTilePos[0],
         centerPos[1] - centerTilePos[1],
@@ -488,19 +484,22 @@ export default {
       );
       // y轴向上
       let axisYIsTop = this.selectMapData.axis ? this.selectMapData.axis[1] === 'top' : false
-      if (axisYIsTop) {
-        colMinNum++
-      }
       this.currentTileCache = {}; // 清空缓存对象
       // 渲染画布内所有瓦片
       for (let i = -rowMinNum; i <= rowMaxNum; i++) {
         for (let j = -colMinNum; j <= colMaxNum; j++) {
           // 当前瓦片的行列号
           let row = centerTile[0] + i;
-          let col = centerTile[1] + (axisYIsTop ? -j : j);
+          let col = centerTile[1] + j;
           // 当前瓦片的显示位置
+          let _j = j
+          // 百度地图，坐标系和画布坐标系y轴相反
+          if (axisYIsTop && j !== 0) {
+            _j = -j
+          }
           let x = i * TILE_SIZE - offset[0];
-          let y = j * TILE_SIZE - (axisYIsTop ? -offset[1] : offset[1]);
+          // 百度地图的offset[1]是中心点距中心瓦片左下角的距离，需要换算成左上角的y值
+          let y = _j * TILE_SIZE - (axisYIsTop ? TILE_SIZE - offset[1] : offset[1]);
           // 缓存key
           let cacheKey = row + "_" + col + "_" + this.zoom;
           // 记录当前需要的瓦片
