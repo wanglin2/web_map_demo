@@ -81,20 +81,25 @@ export const getTileUrl = (x, y, z) => {
     return `https://webrd0${domainIndex}.is.autonavi.com/appmaptile?x=${x}&y=${y}&z=${z}&lang=zh_cn&size=1&scale=1&style=8`
 }
 
-// 拼接瓦片地址
-export const getTileUrlPro = (x, y, z, url, {transformXYZ, getTileUrl} = {}) => {
+// 随机获取url子域索引
+export const getRandomDomainIndex = (url) => {
     // 检查是否支持多个子域
     let res = url.match(/\{[\d-]+\}/)
-    let domainIndex = ''
     if (res) {
         let arr = res[0].slice(1, -1).split(/\s*-\s*/)
         let domainIndexList = []
         for (let i = Number(arr[0]); i <= Number(arr[1]); i++) {
             domainIndexList.push(i)
         }
-        domainIndex =
-            domainIndexList[Math.floor(Math.random() * domainIndexList.length)]
+        return domainIndexList[Math.floor(Math.random() * domainIndexList.length)]
     }
+    return null
+}
+
+// 拼接瓦片地址
+export const getTileUrlPro = (x, y, z, url, {transformXYZ, getTileUrl} = {}) => {
+    // 检查是否支持多个子域
+    let domainIndex = getRandomDomainIndex(url)
     if (domainIndex !== '') {
         url = url.replace(/\{[\d-]+\}/, domainIndex)
     }
