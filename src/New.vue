@@ -72,6 +72,7 @@ import {
   resolutions,
   mercatorToLngLat,
   KEY,
+  getRandomDomainIndex
 } from "./utils";
 import gcoord from 'gcoord';
 
@@ -308,7 +309,7 @@ export default {
           name: '高德影像图',
           value: 'gaodeImage',
           type: 'GoogleXYZ',
-          urls: ['https://webst01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6', 'https://wprd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=8&x={x}&y={y}&z={z}&scl=1&ltype=4']
+          urls: ['https://webst0{1-4}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6', 'https://wprd0{1-4}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=8&x={x}&y={y}&z={z}&scl=1&ltype=4']
         },
         {
           name: '腾讯地图',
@@ -353,7 +354,8 @@ export default {
                 x >>= 1
                 y >>= 1
             }
-            return 'http://dynamic.t0.tiles.ditu.live.com/comp/ch/' + result + '?it=G,VE,BX,L,LA&mkt=zh-cn,syr&n=z&og=111&ur=CN'
+            let domainIndex = getRandomDomainIndex('http://dynamic.t{0-3}.tiles.ditu.live.com/comp/ch/')
+            return `http://dynamic.t${domainIndex}.tiles.ditu.live.com/comp/ch/${result}?it=G,VE,BX,L,LA&mkt=zh-cn,syr&n=z&og=111&ur=CN`
           }
         },
       ]
