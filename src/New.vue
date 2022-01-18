@@ -271,7 +271,7 @@ export default {
       initCenter: [120.148732, 30.231006], // 雷锋塔
       center: [120.148732, 30.231006], // 雷锋塔
       // 初始缩放层级
-      zoom: 3,
+      zoom: 14,
       // 缩放层级范围
       minZoom: 3,
       maxZoom: 18,
@@ -439,31 +439,28 @@ export default {
         gcoord.GCJ02,
         gcoord.BD09MC
       ), this.zoom);
-      console.log(centerTilePos, centerPos);
       // 中心像素坐标距中心瓦片左上角的差值
       let offset = [
         centerPos[0] - centerTilePos[0],
         centerPos[1] - centerTilePos[1],
       ];
-      offset = centerPos
-      console.log(offset);
+      // offset = centerPos
       // 计算瓦片数量
-      // let rowMinNum = Math.ceil((this.width / 2 - offset[0]) / TILE_SIZE);
-      // let colMinNum = Math.ceil((this.height / 2 - offset[1]) / TILE_SIZE);
-      // let rowMaxNum = Math.ceil(
-      //   (this.width / 2 - (TILE_SIZE - offset[0])) / TILE_SIZE
-      // );
-      // let colMaxNum = Math.ceil(
-      //   (this.height / 2 - (TILE_SIZE - offset[1])) / TILE_SIZE
-      // );
+      let rowMinNum = Math.ceil((this.width / 2 - offset[0]) / TILE_SIZE);
+      let colMinNum = Math.ceil((this.height / 2 - offset[1]) / TILE_SIZE);
+      let rowMaxNum = Math.ceil(
+        (this.width / 2 - (TILE_SIZE - offset[0])) / TILE_SIZE
+      );
+      let colMaxNum = Math.ceil(
+        (this.height / 2 - offset[1]) / TILE_SIZE
+      );
       // 渲染画布内所有瓦片
       this.currentTileCache = {}; // 清空缓存对象
-      for (let i = -5; i <= 5; i++) {
-        let j = 0
-        // for (let j = -colMinNum; j <= colMaxNum; j++) {
+      for (let i = -rowMinNum; i <= rowMaxNum; i++) {
+        for (let j = -colMinNum; j <= colMaxNum; j++) {
           // 当前瓦片的行列号
           let row = centerTile[0] + i;
-          let col = centerTile[1] + j;
+          let col = centerTile[1] - j;
           // 当前瓦片的显示位置
           let x = i * TILE_SIZE - offset[0];
           let y = j * TILE_SIZE + offset[1];
@@ -497,7 +494,7 @@ export default {
               }
             });
           }
-        // }
+        }
       }
     },
 
