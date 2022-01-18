@@ -49,25 +49,27 @@ for (let i = 0; i <= 18; i++) {
 }
 
 // 转换3857坐标的原点
-export const transformXY = (x, y) => {
-    x += EARTH_PERIMETER / 2
-    y = EARTH_PERIMETER / 2 - y
+export const transformXY = (x, y, origin = 'topLeft') => {
+    if (origin === 'topLeft') {
+        x += EARTH_PERIMETER / 2
+        y = EARTH_PERIMETER / 2 - y
+    }
     return [x, y]
 }
 
 // 根据4326坐标及缩放层级计算瓦片行列号
-export const getTileRowAndCol = (lng, lat, z) => {
-    let [x, y] = transformXY(...lngLatToMercator(lng, lat))
-    let resolution = resolutions[z]
+export const getTileRowAndCol = (lng, lat, z, opt = {}) => {
+    let [x, y] = transformXY(...(opt.lngLatToMercator || lngLatToMercator)(lng, lat), opt.origin)
+    let resolution = (opt.resolutions || resolutions)[z]
     let row = Math.floor(x / resolution / TILE_SIZE)
     let col = Math.floor(y / resolution / TILE_SIZE)
     return [row, col]
 }
 
 // 计算4326经纬度对应的像素坐标
-export const getPxFromLngLat = (lng, lat, z) => {
-    let [_x, _y] = transformXY(...lngLatToMercator(lng, lat))
-    let resolution = resolutions[z]
+export const getPxFromLngLat = (lng, lat, z, opt = {}) => {
+    let [_x, _y] = transformXY(...(opt.lngLatToMercator || lngLatToMercator)(lng, lat), opt.origin)
+    let resolution = (opt.resolutions || resolutions)[z]
     let x = Math.floor(_x / resolution)
     let y = Math.floor(_y / resolution)
     return [x, y]
