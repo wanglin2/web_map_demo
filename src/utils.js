@@ -12,7 +12,7 @@ const radToAngle = (rad) => {
 const EARTH_RAD = 6378137
 
 // 4326转3857
-export const lngLat2Mercator = (lng, lat) => {
+export const lngLatToMercator = (lng, lat) => {
     // 经度先转弧度，然后因为 弧度 = 弧长 / 半径 ，得到弧长为 弧长 = 弧度 * 半径
     let x = angleToRad(lng) * EARTH_RAD
     // 纬度先转弧度
@@ -55,11 +55,9 @@ export const transformXY = (x, y) => {
     return [x, y]
 }
 
-// 根据3857坐标及缩放层级计算瓦片行列号
-export const getTileRowAndCol = (x, y, z) => {
-    let t = transformXY(x, y)
-    x = t[0]
-    y = t[1]
+// 根据4326坐标及缩放层级计算瓦片行列号
+export const getTileRowAndCol = (lng, lat, z) => {
+    let [x, y] = transformXY(...lngLatToMercator(lng, lat))
     let resolution = resolutions[z]
     let row = Math.floor(x / resolution / TILE_SIZE)
     let col = Math.floor(y / resolution / TILE_SIZE)
@@ -68,7 +66,7 @@ export const getTileRowAndCol = (x, y, z) => {
 
 // 计算4326经纬度对应的像素坐标
 export const getPxFromLngLat = (lng, lat, z) => {
-    let [_x, _y] = transformXY(...lngLat2Mercator(lng, lat))
+    let [_x, _y] = transformXY(...lngLatToMercator(lng, lat))
     let resolution = resolutions[z]
     let x = Math.floor(_x / resolution)
     let y = Math.floor(_y / resolution)
@@ -84,7 +82,8 @@ export const getTileUrl = (x, y, z) => {
 }
 
 // 拼接瓦片地址
-export const getTileUrlPro = (x, y, z, url, type) => {
+export const getTileUrlPro = (x, y, z, url, {transformXYZ, getTileUrl} = {}) => {
+    // 检查是否支持多个子域
     let res = url.match(/\{[\d-]+\}/)
     let domainIndex = ''
     if (res) {
@@ -99,19 +98,16 @@ export const getTileUrlPro = (x, y, z, url, type) => {
     if (domainIndex !== '') {
         url = url.replace(/\{[\d-]+\}/, domainIndex)
     }
-    if (type === 'WMTS') {
-        y = -y - 1
-        y = Math.pow(2, z) + y
-    } else if (type === 'bing') {
-        var result = '',
-            zIndex = 0
-
-        for (; zIndex < z; zIndex++) {
-            result = ((x & 1) + 2 * (y & 1)).toString() + result
-            x >>= 1
-            y >>= 1
-        }
-        return 'http://dynamic.t0.tiles.ditu.live.com/comp/ch/' + result + '?it=G,VE,BX,L,LA&mkt=zh-cn,syr&n=z&og=111&ur=CN'
+    // 自定义url拼接方法
+    if (getTileUrl) {
+        return getTileUrl(x, y, z)
+    }
+    // 转换x、y、z
+    if (transformXYZ) {
+        let res = transformXYZ(x, y, z)
+        x = res[0]
+        y = res[1]
+        z = res[2]
     }
     return url.replace('{x}', x).replace('{y}', y).replace('{z}', z)
 }
