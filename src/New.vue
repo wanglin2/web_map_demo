@@ -302,19 +302,49 @@ export default {
         {
           name: '高德地图',
           value: 'gaode',
-          type: 'GoogleXYZ',
           urls: ['https://webrd0{1-4}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1&style=8'],
         },
         {
           name: '高德影像图',
           value: 'gaodeImage',
-          type: 'GoogleXYZ',
           urls: ['https://webst0{1-4}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6', 'https://wprd0{1-4}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=8&x={x}&y={y}&z={z}&scl=1&ltype=4']
+        },
+        {
+          name: '百度地图',
+          value: 'baidu',
+          urls: ['https://maponline2.bdimg.com/tile/?qt=vtile&x={x}&y={y}&z={z}&styles=pl&scaler=2&udt=&from=jsapi2_0'],
+          origin: 'center',// 坐标系原点
+          axis: ['right', 'top'],// 坐标轴方向
+          resolutions: function(){// 自定义分辨率
+            let resolutions = [];
+            for (let i = 0; i <= 18; i++) {
+                resolutions[i] = Math.pow(2, 18 - i);
+            }
+            return resolutions
+          }(),
+          transformXYZ(x, y, z) {
+            y = y - 1
+            return [x, y, z]
+          },
+          // 自定义经纬度和墨卡托坐标转换方法
+          lngLatToMercator(lng, lat) {
+            return gcoord.transform(
+              [lng, lat],
+              gcoord.GCJ02,
+              gcoord.BD09MC
+            )
+          },
+          mercatorToLngLat(lng, lat) {
+            return gcoord.transform(
+              [lng, lat],
+              gcoord.BD09MC,
+              gcoord.GCJ02
+            )
+          }
         },
         {
           name: '腾讯地图',
           value: 'tx',
-          type: 'TMS',
           urls: ['https://rt{1-3}.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0'],
           transformXYZ(x, y, z) {
             // 原点从左上角转换成左下角
@@ -325,13 +355,11 @@ export default {
         {
           name: 'GeoQ',
           value: 'geoq',
-          type: 'GoogleXYZ',
           urls: ['http://cache1.arcgisonline.cn/arcgis/rest/services/ChinaOnlineCommunity/MapServer/tile/{z}/{y}/{x}']
         },
         {
           name: '天地图',
           value: 'tianditu',
-          type: 'GoogleXYZ',
           urls: ['http://t{0-7}.tianditu.com/DataServer?T=vec_w&tk=2c009e76130364aaf09aa30ef0621154&x={x}&y={y}&l={z}', 'http://t3.tianditu.com/DataServer?T=cva_w&tk=2c009e76130364aaf09aa30ef0621154&x={x}&y={y}&l={z}'],
           // 需要火星坐标系转4326
           transformLngLat(lng, lat) {
@@ -345,7 +373,6 @@ export default {
         {
           name: '必应中文',
           value: 'bing',
-          type: 'bing',
           urls: [''],
           getTileUrl(x, y, z) {
             let result = '', zIndex = 0
@@ -430,18 +457,21 @@ export default {
       if (this.selectMapData.transformLngLat) {
         center = this.selectMapData.transformLngLat(...this.center)
       }
+      // 地图自定义数据
+      let plusOpt = {
+        origin: this.selectMapData.origin,
+        resolutions: this.selectMapData.resolutions,
+        lngLatToMercator: this.selectMapData.lngLatToMercator
+      }
       // 中心点对应的瓦片
-      let centerTile = getTileRowAndCol(
-        ...center,
-        this.zoom
-      );
+      let centerTile = getTileRowAndCol(...center, this.zoom, plusOpt);
       // 中心瓦片左上角对应的像素坐标
       let centerTilePos = [
         centerTile[0] * TILE_SIZE,
         centerTile[1] * TILE_SIZE,
       ];
       // 中心点对应的像素坐标
-      let centerPos = getPxFromLngLat(...center, this.zoom);
+      let centerPos = getPxFromLngLat(...center, this.zoom, plusOpt);
       // 中心像素坐标距中心瓦片左上角的差值
       let offset = [
         centerPos[0] - centerTilePos[0],
@@ -456,16 +486,21 @@ export default {
       let colMaxNum = Math.ceil(
         (this.height / 2 - (TILE_SIZE - offset[1])) / TILE_SIZE
       );
-      // 渲染画布内所有瓦片
+      // y轴向上
+      let axisYIsTop = this.selectMapData.axis ? this.selectMapData.axis[1] === 'top' : false
+      if (axisYIsTop) {
+        colMinNum++
+      }
       this.currentTileCache = {}; // 清空缓存对象
+      // 渲染画布内所有瓦片
       for (let i = -rowMinNum; i <= rowMaxNum; i++) {
         for (let j = -colMinNum; j <= colMaxNum; j++) {
           // 当前瓦片的行列号
           let row = centerTile[0] + i;
-          let col = centerTile[1] + j;
+          let col = centerTile[1] + (axisYIsTop ? -j : j);
           // 当前瓦片的显示位置
           let x = i * TILE_SIZE - offset[0];
-          let y = j * TILE_SIZE - offset[1];
+          let y = j * TILE_SIZE - (axisYIsTop ? -offset[1] : offset[1]);
           // 缓存key
           let cacheKey = row + "_" + col + "_" + this.zoom;
           // 记录当前需要的瓦片
@@ -541,11 +576,11 @@ export default {
       }
       this.lastMouseTime = curTime;
       // 计算本次拖动的距离对应的经纬度数据
-      let mx = e.movementX * resolutions[this.zoom];
-      let my = e.movementY * resolutions[this.zoom];
-      let [x, y] = lngLatToMercator(...this.center);
+      let mx = e.movementX * (this.selectMapData.resolutions || resolutions)[this.zoom];
+      let my = e.movementY * (this.selectMapData.resolutions || resolutions)[this.zoom];
+      let [x, y] = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...this.center);
       // 更新拖动后的中心点经纬度
-      this.center = mercatorToLngLat(x - mx, my + y);
+      this.center = (this.selectMapData.mercatorToLngLat || mercatorToLngLat)(x - mx, my + y);
       // 清除画布重新渲染瓦片
       this.clearLayer();
       this.renderTiles();
@@ -590,11 +625,11 @@ export default {
         },
         onComplete: () => {
           // 计算本次拖动的距离对应的经纬度数据
-          let mx = this.translate[0] * resolutions[this.zoom];
-          let my = this.translate[1] * resolutions[this.zoom];
-          let [x, y] = lngLatToMercator(...this.center);
+          let mx = this.translate[0] * (this.selectMapData.resolutions || resolutions)[this.zoom];
+          let my = this.translate[1] * (this.selectMapData.resolutions || resolutions)[this.zoom];
+          let [x, y] = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...this.center);
           // 更新拖动后的中心点经纬度
-          this.center = mercatorToLngLat(x - mx, my + y);
+          this.center = (this.selectMapData.mercatorToLngLat || mercatorToLngLat)(x - mx, my + y);
           this.useLayer1 = !this.useLayer1;
           this.resetTranslate();
           // 当前不在画布上的瓦片透明度都恢复成0
@@ -703,13 +738,13 @@ export default {
         });
       }
       // 目标位置经纬度转3857坐标
-      let newCenterMercator = lngLatToMercator(...newCenter);
+      let newCenterMercator = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...newCenter);
       // 当前经纬度转3857坐标
-      let centerMercator = lngLatToMercator(...this.center);
+      let centerMercator = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...this.center);
       // 计算两者的距离，转换成像素
       this.translate = [
-        (newCenterMercator[0] - centerMercator[0]) / resolutions[this.zoom],
-        (newCenterMercator[1] - centerMercator[1]) / resolutions[this.zoom],
+        (newCenterMercator[0] - centerMercator[0]) / (this.selectMapData.resolutions || resolutions)[this.zoom],
+        (newCenterMercator[1] - centerMercator[1]) / (this.selectMapData.resolutions || resolutions)[this.zoom],
       ];
       // 重置画布
       this.resetLayer();

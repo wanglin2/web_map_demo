@@ -13,7 +13,7 @@ import {
   getTileUrl,
   TILE_SIZE,
   getTileRowAndCol,
-  lngLat2Mercator,
+  lngLatToMercator,
   getPxFromLngLat,
   resolutions,
   mercatorToLngLat,
@@ -148,7 +148,7 @@ export default {
     renderTiles() {
       // 中心点对应的瓦片
       let centerTile = getTileRowAndCol(
-        ...lngLat2Mercator(...this.center),
+        ...lngLatToMercator(...this.center),
         this.zoom
       );
       // 中心瓦片左上角对应的像素坐标
@@ -233,7 +233,7 @@ export default {
       // 计算本次拖动的距离对应的经纬度数据
       let mx = e.movementX * resolutions[this.zoom];
       let my = e.movementY * resolutions[this.zoom];
-      let [x, y] = lngLat2Mercator(...this.center);
+      let [x, y] = lngLatToMercator(...this.center);
       // 更新拖动后的中心点经纬度
       this.center = mercatorToLngLat(x - mx, my + y);
       // 清除画布重新渲染瓦片
