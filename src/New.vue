@@ -67,12 +67,13 @@ import {
   getTileUrlPro,
   TILE_SIZE,
   getTileRowAndCol,
-  lngLat2Mercator,
+  lngLatToMercator,
   getPxFromLngLat,
   resolutions,
   mercatorToLngLat,
   KEY,
 } from "./utils";
+import gcoord from 'gcoord';
 
 // 图片加载类
 class Img {
@@ -91,6 +92,7 @@ class Img {
         this.onload(null);
         this.called = true
       }
+      return
     }
     this.reloadTimes++
     let img = new Image();
@@ -153,7 +155,7 @@ class Tile {
   createUrl() {
     let mapData = this.getMapTypeData()
     this.urls = mapData.urls.map((url) => {
-      return getTileUrlPro(this.row, this.col, this.zoom, url, mapData.type)
+      return getTileUrlPro(this.row, this.col, this.zoom, url, {getTileUrl: mapData.getTileUrl, transformXYZ: mapData.transformXYZ})
     });
   }
 
@@ -300,7 +302,7 @@ export default {
           name: '高德地图',
           value: 'gaode',
           type: 'GoogleXYZ',
-          urls: ['https://webrd0{1-4}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1&style=8']
+          urls: ['https://webrd0{1-4}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1&style=8'],
         },
         {
           name: '高德影像图',
@@ -311,20 +313,48 @@ export default {
         {
           name: '腾讯地图',
           value: 'tx',
-          type: 'WMTS',
-          urls: ['https://rt{1-3}.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0']
+          type: 'TMS',
+          urls: ['https://rt{1-3}.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0'],
+          transformXYZ(x, y, z) {
+            // 原点从左上角转换成左下角
+            y = Math.pow(2, z) - y - 1
+            return [x, y, z]
+          }
         },
         {
-          name: 'ArcGis在线',
-          value: 'ArcGis',
+          name: 'GeoQ',
+          value: 'geoq',
           type: 'GoogleXYZ',
-          urls: ['https://map.geoq.cn/arcgis/rest/services/ChinaOnlineCommunity/MapServer/tile/{z}/{y}/{x}']
+          urls: ['http://cache1.arcgisonline.cn/arcgis/rest/services/ChinaOnlineCommunity/MapServer/tile/{z}/{y}/{x}']
+        },
+        {
+          name: '天地图',
+          value: 'tianditu',
+          type: 'GoogleXYZ',
+          urls: ['http://t{0-7}.tianditu.com/DataServer?T=vec_w&tk=2c009e76130364aaf09aa30ef0621154&x={x}&y={y}&l={z}', 'http://t3.tianditu.com/DataServer?T=cva_w&tk=2c009e76130364aaf09aa30ef0621154&x={x}&y={y}&l={z}'],
+          // 需要火星坐标系转4326
+          transformLngLat(lng, lat) {
+            return gcoord.transform(
+              [lng, lat],
+              gcoord.GCJ02,
+              gcoord.WGS84
+            );
+          }
         },
         {
           name: '必应中文',
           value: 'bing',
           type: 'bing',
-          urls: ['']
+          urls: [''],
+          getTileUrl(x, y, z) {
+            let result = '', zIndex = 0
+            for (; zIndex < z; zIndex++) {
+                result = ((x & 1) + 2 * (y & 1)).toString() + result
+                x >>= 1
+                y >>= 1
+            }
+            return 'http://dynamic.t0.tiles.ditu.live.com/comp/ch/' + result + '?it=G,VE,BX,L,LA&mkt=zh-cn,syr&n=z&og=111&ur=CN'
+          }
         },
       ]
     };
@@ -339,7 +369,6 @@ export default {
     this.changeMapType()
   },
   async mounted() {
-    await this.location();
     this.init();
     this.renderTiles();
     window.addEventListener("mousemove", this.onMousemove);
@@ -368,23 +397,6 @@ export default {
       })
     },
 
-    // 定位
-    async location() {
-      try {
-        let response = await fetch(`https://restapi.amap.com/v3/ip?key=${KEY}`);
-        let res = await response.json();
-        let arr = res.rectangle.split(";");
-        let pos1 = arr[0].split(",");
-        let pos2 = arr[1].split(",");
-        this.initCenter = this.center = [
-          (Number(pos1[0]) + Number(pos2[0])) / 2,
-          (Number(pos1[1]) + Number(pos2[1])) / 2,
-        ];
-      } catch (error) {
-        console.log(error);
-      }
-    },
-
     // 初始化
     init() {
       // 获取容器宽高
@@ -411,9 +423,14 @@ export default {
 
     // 计算显示范围内的瓦片行列号
     renderTiles(isFadeIn = false) {
+      let center = this.center
+      // 需要转换经纬度
+      if (this.selectMapData.transformLngLat) {
+        center = this.selectMapData.transformLngLat(...this.center)
+      }
       // 中心点对应的瓦片
       let centerTile = getTileRowAndCol(
-        ...lngLat2Mercator(...this.center),
+        ...center,
         this.zoom
       );
       // 中心瓦片左上角对应的像素坐标
@@ -422,7 +439,7 @@ export default {
         centerTile[1] * TILE_SIZE,
       ];
       // 中心点对应的像素坐标
-      let centerPos = getPxFromLngLat(...this.center, this.zoom);
+      let centerPos = getPxFromLngLat(...center, this.zoom);
       // 中心像素坐标距中心瓦片左上角的差值
       let offset = [
         centerPos[0] - centerTilePos[0],
@@ -524,7 +541,7 @@ export default {
       // 计算本次拖动的距离对应的经纬度数据
       let mx = e.movementX * resolutions[this.zoom];
       let my = e.movementY * resolutions[this.zoom];
-      let [x, y] = lngLat2Mercator(...this.center);
+      let [x, y] = lngLatToMercator(...this.center);
       // 更新拖动后的中心点经纬度
       this.center = mercatorToLngLat(x - mx, my + y);
       // 清除画布重新渲染瓦片
@@ -573,7 +590,7 @@ export default {
           // 计算本次拖动的距离对应的经纬度数据
           let mx = this.translate[0] * resolutions[this.zoom];
           let my = this.translate[1] * resolutions[this.zoom];
-          let [x, y] = lngLat2Mercator(...this.center);
+          let [x, y] = lngLatToMercator(...this.center);
           // 更新拖动后的中心点经纬度
           this.center = mercatorToLngLat(x - mx, my + y);
           this.useLayer1 = !this.useLayer1;
@@ -684,9 +701,9 @@ export default {
         });
       }
       // 目标位置经纬度转3857坐标
-      let newCenterMercator = lngLat2Mercator(...newCenter);
+      let newCenterMercator = lngLatToMercator(...newCenter);
       // 当前经纬度转3857坐标
-      let centerMercator = lngLat2Mercator(...this.center);
+      let centerMercator = lngLatToMercator(...this.center);
       // 计算两者的距离，转换成像素
       this.translate = [
         (newCenterMercator[0] - centerMercator[0]) / resolutions[this.zoom],
