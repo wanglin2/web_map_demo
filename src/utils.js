@@ -1,3 +1,5 @@
+import gcoord from 'gcoord';
+
 // 角度转弧度
 const angleToRad = (angle) => {
     return angle * (Math.PI / 180)
@@ -47,6 +49,11 @@ export const resolutions = []
 for (let i = 0; i <= 18; i++) {
     resolutions.push(getResolution(i))
 }
+export const resolutions2 = []
+for (let i = 0; i <= 19; i++) {
+    resolutions2.push(Math.pow(2, 18 - i))
+}
+console.log(EARTH_PERIMETER, resolutions, resolutions2);
 
 // 转换3857坐标的原点
 export const transformXY = (x, y) => {
@@ -57,21 +64,19 @@ export const transformXY = (x, y) => {
 
 // 根据3857坐标及缩放层级计算瓦片行列号
 export const getTileRowAndCol = (x, y, z) => {
-    let t = transformXY(x, y)
-    x = t[0]
-    y = t[1]
-    let resolution = resolutions[z]
-    let row = Math.floor(x / resolution / TILE_SIZE)
-    let col = Math.floor(y / resolution / TILE_SIZE)
+    console.log(x, y, z);
+    let resolution = resolutions2[z]
+    let row = Math.ceil(x / resolution / TILE_SIZE)
+    let col = Math.ceil(y / resolution / TILE_SIZE) - 1
+    console.log(row, col, z)
     return [row, col]
 }
 
 // 计算4326经纬度对应的像素坐标
-export const getPxFromLngLat = (lng, lat, z) => {
-    let [_x, _y] = transformXY(...lngLat2Mercator(lng, lat))
-    let resolution = resolutions[z]
-    let x = Math.floor(_x / resolution)
-    let y = Math.floor(_y / resolution)
+export const getPxFromLngLat = (_x, _y, z) => {
+    let resolution = resolutions2[z]
+    let x = Math.ceil(_x / resolution) - Math.ceil(_x / resolution / TILE_SIZE) * TILE_SIZE
+    let y = Math.ceil(_y / resolution) - Math.ceil(_y / resolution / TILE_SIZE) * TILE_SIZE
     return [x, y]
 }
 
@@ -99,7 +104,9 @@ export const getTileUrlPro = (x, y, z, url, type) => {
     if (domainIndex !== '') {
         url = url.replace(/\{[\d-]+\}/, domainIndex)
     }
-    if (type === 'WMTS') {
+    if (type === 'baidu') {
+        return `https://maponline0.bdimg.com/tile/?qt=vtile&x=${x}&y=${y}&z=${z}&styles=pl&scaler=1&udt=20220114&from=jsapi2_0`;
+    } else if (type === 'WMTS') {
         y = -y - 1
         y = Math.pow(2, z) + y
     } else if (type === 'bing') {

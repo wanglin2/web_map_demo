@@ -73,6 +73,7 @@ import {
   mercatorToLngLat,
   KEY,
 } from "./utils";
+import gcoord from 'gcoord';
 
 // 图片加载类
 class Img {
@@ -91,6 +92,7 @@ class Img {
         this.onload(null);
         this.called = true
       }
+      return
     }
     this.reloadTimes++
     let img = new Image();
@@ -269,7 +271,7 @@ export default {
       initCenter: [120.148732, 30.231006], // 雷锋塔
       center: [120.148732, 30.231006], // 雷锋塔
       // 初始缩放层级
-      zoom: 14,
+      zoom: 3,
       // 缩放层级范围
       minZoom: 3,
       maxZoom: 18,
@@ -309,6 +311,12 @@ export default {
           urls: ['https://webst01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6', 'https://wprd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=8&x={x}&y={y}&z={z}&scl=1&ltype=4']
         },
         {
+          name: '百度地图',
+          value: 'baidu',
+          type: 'baidu',
+          urls: ['']
+        },
+        {
           name: '腾讯地图',
           value: 'tx',
           type: 'WMTS',
@@ -335,11 +343,11 @@ export default {
     }
   },
   created() {
-    this.selectMapType = this.mapList[0].value
+    this.selectMapType = this.mapList[2].value
     this.changeMapType()
   },
   async mounted() {
-    await this.location();
+    // await this.location();
     this.init();
     this.renderTiles();
     window.addEventListener("mousemove", this.onMousemove);
@@ -413,7 +421,11 @@ export default {
     renderTiles(isFadeIn = false) {
       // 中心点对应的瓦片
       let centerTile = getTileRowAndCol(
-        ...lngLat2Mercator(...this.center),
+        ...gcoord.transform(
+          this.center,
+          gcoord.GCJ02,
+          gcoord.BD09MC
+        ),
         this.zoom
       );
       // 中心瓦片左上角对应的像素坐标
@@ -422,31 +434,39 @@ export default {
         centerTile[1] * TILE_SIZE,
       ];
       // 中心点对应的像素坐标
-      let centerPos = getPxFromLngLat(...this.center, this.zoom);
+      let centerPos = getPxFromLngLat(...gcoord.transform(
+        this.center,
+        gcoord.GCJ02,
+        gcoord.BD09MC
+      ), this.zoom);
+      console.log(centerTilePos, centerPos);
       // 中心像素坐标距中心瓦片左上角的差值
       let offset = [
         centerPos[0] - centerTilePos[0],
         centerPos[1] - centerTilePos[1],
       ];
+      offset = centerPos
+      console.log(offset);
       // 计算瓦片数量
-      let rowMinNum = Math.ceil((this.width / 2 - offset[0]) / TILE_SIZE);
-      let colMinNum = Math.ceil((this.height / 2 - offset[1]) / TILE_SIZE);
-      let rowMaxNum = Math.ceil(
-        (this.width / 2 - (TILE_SIZE - offset[0])) / TILE_SIZE
-      );
-      let colMaxNum = Math.ceil(
-        (this.height / 2 - (TILE_SIZE - offset[1])) / TILE_SIZE
-      );
+      // let rowMinNum = Math.ceil((this.width / 2 - offset[0]) / TILE_SIZE);
+      // let colMinNum = Math.ceil((this.height / 2 - offset[1]) / TILE_SIZE);
+      // let rowMaxNum = Math.ceil(
+      //   (this.width / 2 - (TILE_SIZE - offset[0])) / TILE_SIZE
+      // );
+      // let colMaxNum = Math.ceil(
+      //   (this.height / 2 - (TILE_SIZE - offset[1])) / TILE_SIZE
+      // );
       // 渲染画布内所有瓦片
       this.currentTileCache = {}; // 清空缓存对象
-      for (let i = -rowMinNum; i <= rowMaxNum; i++) {
-        for (let j = -colMinNum; j <= colMaxNum; j++) {
+      for (let i = -5; i <= 5; i++) {
+        let j = 0
+        // for (let j = -colMinNum; j <= colMaxNum; j++) {
           // 当前瓦片的行列号
           let row = centerTile[0] + i;
           let col = centerTile[1] + j;
           // 当前瓦片的显示位置
           let x = i * TILE_SIZE - offset[0];
-          let y = j * TILE_SIZE - offset[1];
+          let y = j * TILE_SIZE + offset[1];
           // 缓存key
           let cacheKey = row + "_" + col + "_" + this.zoom;
           // 记录当前需要的瓦片
@@ -477,7 +497,7 @@ export default {
               }
             });
           }
-        }
+        // }
       }
     },
 
