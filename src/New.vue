@@ -27,6 +27,11 @@
         </div>
       </div>
     </div>
+    <div class="mapTypeSelectBox">
+      <select v-model="selectMapType" @change="onSelectMapTypeChange">
+        <option v-for="item in mapList" :key="item.value" :value="item.value">{{item.name}}</option>
+      </select>
+    </div>
     <!-- 经纬度框 -->
     <div class="posInput">
       <input
@@ -59,19 +64,61 @@
 import { animate, easeOut } from "popmotion";
 import Konva from "konva";
 import {
-  getTileUrl,
+  getTileUrlPro,
   TILE_SIZE,
   getTileRowAndCol,
-  lngLat2Mercator,
+  lngLatToMercator,
   getPxFromLngLat,
   resolutions,
   mercatorToLngLat,
   KEY,
+  getRandomDomainIndex
 } from "./utils";
+import gcoord from 'gcoord';
+
+// 图片加载类
+class Img {
+  constructor(url, onload) {
+    this.timer = null;
+    this.url = url;
+    this.onload = onload;
+    this.called = false
+    this.reloadTimes = 0;
+    this.load();
+  }
+
+  load() {
+    if (this.reloadTimes >= 5) {
+      if (!this.called) {
+        this.onload(null);
+        this.called = true
+      }
+      return
+    }
+    this.reloadTimes++
+    let img = new Image();
+    img.src = this.url;
+    // 加载超时，重新加载
+    this.timer = setTimeout(() => {
+      this.load();
+    }, 1000);
+    // 加载完成
+    img.onload = () => {
+      clearTimeout(this.timer);
+      if (!this.called) {
+        this.onload(img);
+        this.called = true
+      }
+    };
+    img.onerror = () => {
+      this.load();
+    }
+  }
+}
 
 // 瓦片类
 class Tile {
-  constructor({ layer, row, col, zoom, x, y, shouldRender }) {
+  constructor({ layer, row, col, zoom, x, y, shouldRender, getMapTypeData }) {
     // 瓦片显示图层
     this.layer = layer;
     // 瓦片行列号
@@ -84,12 +131,14 @@ class Tile {
     this.y = y;
     // 判断瓦片是否应该渲染
     this.shouldRender = shouldRender;
+    // 获取当前地图类型数据
+    this.getMapTypeData = getMapTypeData;
     // 瓦片url
-    this.url = "";
+    this.urls = [];
     // 缓存key
     this.cacheKey = this.row + "_" + this.col + "_" + this.zoom;
     // 瓦片图片
-    this.img = null;
+    this.imgs = [];
     // 瓦片透明度
     this.opacity = 0;
     // 图片是否加载完成
@@ -105,42 +154,49 @@ class Tile {
 
   // 生成url
   createUrl() {
-    this.url = getTileUrl(this.row, this.col, this.zoom);
+    let mapData = this.getMapTypeData()
+    this.urls = mapData.urls.map((url) => {
+      return getTileUrlPro(this.row, this.col, this.zoom, url, {getTileUrl: mapData.getTileUrl, transformXYZ: mapData.transformXYZ})
+    });
   }
 
   // 加载图片
   load() {
-    let img = new Image();
-    img.src = this.url;
-    // 加载超时，重新加载
-    this.timer = setTimeout(() => {
-      this.createUrl();
-      this.load();
-    }, 1000);
-    // 加载完成
-    img.onload = () => {
-      clearTimeout(this.timer);
-      // 创建图片元素
-      this.img = new Konva.Image({
-        image: img,
-        width: TILE_SIZE,
-        height: TILE_SIZE,
-        opacity: this.opacity,
-      });
-      this.loaded = true;
-      this.render();
-    };
+    let tasks = this.urls.map((url, index) => {
+      return new Promise((resolve) => {
+        new Img(url, (img) => {
+          if (img) {
+            this.imgs[index] = new Konva.Image({
+              image: img,
+              width: TILE_SIZE,
+              height: TILE_SIZE,
+              opacity: this.opacity,
+            })
+          }
+          resolve()
+        })
+      })
+    })
+    Promise.all(tasks)
+      .then(() => {
+        this.loaded = true
+        this.render()
+      })
   }
 
   // 渲染
   render(isFadeIn = false) {
-    if (!this.loaded || !this.img || !this.shouldRender(this.cacheKey)) {
+    if (!this.loaded || this.imgs.length <= 0 || !this.shouldRender(this.cacheKey)) {
       return;
     }
     // 添加到图层
-    this.layer.add(this.img);
-    // 设置显示位置
-    this.img.x(this.x).y(this.y);
+    this.imgs.forEach((img) => {
+      if (img) {
+        this.layer.add(img);
+        // 设置显示位置
+        img.x(this.x).y(this.y);
+      }
+    });
     // 需要渐现
     if (isFadeIn && this.opacity !== 0) {
       this.hide();
@@ -150,14 +206,18 @@ class Tile {
 
   // 渐现
   fadeIn() {
-    if (this.opacity >= 1 || !this.img) {
+    if (this.opacity >= 1 || this.imgs.length <= 0) {
       return;
     }
     let base = this.opacity;
     let anim = new Konva.Animation((frame) => {
       let opacity = (frame.time / this.fadeInDuration) * 1 + base;
       this.opacity = opacity;
-      this.img.opacity(opacity);
+      this.imgs.forEach((img) => {
+        if (img) {
+          img.opacity(opacity);
+        }
+      });
       if (opacity >= 1) {
         anim.stop();
       }
@@ -167,11 +227,15 @@ class Tile {
 
   // 隐藏
   hide() {
-    if (!this.img) {
+    if (this.imgs.length <= 0) {
       return
     }
     this.opacity = 0;
-    this.img.opacity(0);
+    this.imgs.forEach((img) => {
+      if (img) {
+        img.opacity(0);
+      }
+    });
   }
 
   // 更新要添加到的图层
@@ -231,15 +295,105 @@ export default {
       translatePlayback: null,
       // 经纬度框
       posValue: "",
+      // 地图类型
+      selectMapType: '',
+      selectMapData: null,
+      mapList: [
+        {
+          name: '高德地图',
+          value: 'gaode',
+          urls: ['https://webrd0{1-4}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1&style=8'],
+        },
+        {
+          name: '高德影像图',
+          value: 'gaodeImage',
+          urls: ['https://webst0{1-4}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6', 'https://wprd0{1-4}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=8&x={x}&y={y}&z={z}&scl=1&ltype=4']
+        },
+        {
+          name: '百度地图',
+          value: 'baidu',
+          urls: ['https://maponline2.bdimg.com/tile/?qt=vtile&x={x}&y={y}&z={z}&styles=pl&scaler=2&udt=&from=jsapi2_0'],
+          origin: 'center',// 坐标系原点
+          axis: ['right', 'top'],// 坐标轴方向
+          resolutions: function(){// 自定义分辨率
+            let resolutions = [];
+            for (let i = 0; i <= 18; i++) {
+                resolutions[i] = Math.pow(2, 18 - i);
+            }
+            return resolutions
+          }(),
+          // 自定义经纬度和墨卡托坐标转换方法
+          lngLatToMercator(lng, lat) {
+            return gcoord.transform(
+              [lng, lat],
+              gcoord.GCJ02,
+              gcoord.BD09MC
+            )
+          },
+          mercatorToLngLat(lng, lat) {
+            return gcoord.transform(
+              [lng, lat],
+              gcoord.BD09MC,
+              gcoord.GCJ02
+            )
+          }
+        },
+        {
+          name: '腾讯地图',
+          value: 'tx',
+          urls: ['https://rt{1-3}.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0'],
+          transformXYZ(x, y, z) {
+            // 原点从左上角转换成左下角
+            y = Math.pow(2, z) - y - 1
+            return [x, y, z]
+          }
+        },
+        {
+          name: 'GeoQ',
+          value: 'geoq',
+          urls: ['http://cache1.arcgisonline.cn/arcgis/rest/services/ChinaOnlineCommunity/MapServer/tile/{z}/{y}/{x}']
+        },
+        {
+          name: '天地图',
+          value: 'tianditu',
+          urls: ['http://t{0-7}.tianditu.com/DataServer?T=vec_w&tk=2c009e76130364aaf09aa30ef0621154&x={x}&y={y}&l={z}', 'http://t3.tianditu.com/DataServer?T=cva_w&tk=2c009e76130364aaf09aa30ef0621154&x={x}&y={y}&l={z}'],
+          // 需要火星坐标系转4326
+          transformLngLat(lng, lat) {
+            return gcoord.transform(
+              [lng, lat],
+              gcoord.GCJ02,
+              gcoord.WGS84
+            );
+          }
+        },
+        {
+          name: '必应中文',
+          value: 'bing',
+          urls: [''],
+          getTileUrl(x, y, z) {
+            let result = '', zIndex = 0
+            for (; zIndex < z; zIndex++) {
+                result = ((x & 1) + 2 * (y & 1)).toString() + result
+                x >>= 1
+                y >>= 1
+            }
+            let domainIndex = getRandomDomainIndex('http://dynamic.t{0-3}.tiles.ditu.live.com/comp/ch/')
+            return `http://dynamic.t${domainIndex}.tiles.ditu.live.com/comp/ch/${result}?it=G,VE,BX,L,LA&mkt=zh-cn,syr&n=z&og=111&ur=CN`
+          }
+        },
+      ]
     };
   },
   watch: {
     center(val) {
       this.posValue = val.join(",");
-    },
+    }
+  },
+  created() {
+    this.selectMapType = this.mapList[0].value
+    this.changeMapType()
   },
   async mounted() {
-    await this.location();
     this.init();
     this.renderTiles();
     window.addEventListener("mousemove", this.onMousemove);
@@ -252,21 +406,20 @@ export default {
     window.removeEventListener("wheel", this.onMousewheel);
   },
   methods: {
-    // 定位
-    async location() {
-      try {
-        let response = await fetch(`https://restapi.amap.com/v3/ip?key=${KEY}`);
-        let res = await response.json();
-        let arr = res.rectangle.split(";");
-        let pos1 = arr[0].split(",");
-        let pos2 = arr[1].split(",");
-        this.initCenter = this.center = [
-          (Number(pos1[0]) + Number(pos2[0])) / 2,
-          (Number(pos1[1]) + Number(pos2[1])) / 2,
-        ];
-      } catch (error) {
-        console.log(error);
-      }
+    // 地图类型切换事件
+    onSelectMapTypeChange() {
+      this.changeMapType()
+      this.tileCache = {}
+      this.currentTileCache = {}
+      this.clearLayer()
+      this.renderTiles()
+    },
+
+    // 修改地图类型
+    changeMapType() {
+      this.selectMapData = this.mapList.find((item) => {
+        return item.value === this.selectMapType
+      })
     },
 
     // 初始化
@@ -295,19 +448,27 @@ export default {
 
     // 计算显示范围内的瓦片行列号
     renderTiles(isFadeIn = false) {
+      let center = this.center
+      // 需要转换经纬度
+      if (this.selectMapData.transformLngLat) {
+        center = this.selectMapData.transformLngLat(...this.center)
+      }
+      // 地图自定义数据
+      let plusOpt = {
+        origin: this.selectMapData.origin,
+        resolutions: this.selectMapData.resolutions,
+        lngLatToMercator: this.selectMapData.lngLatToMercator
+      }
       // 中心点对应的瓦片
-      let centerTile = getTileRowAndCol(
-        ...lngLat2Mercator(...this.center),
-        this.zoom
-      );
+      let centerTile = getTileRowAndCol(...center, this.zoom, plusOpt);
       // 中心瓦片左上角对应的像素坐标
       let centerTilePos = [
         centerTile[0] * TILE_SIZE,
         centerTile[1] * TILE_SIZE,
       ];
       // 中心点对应的像素坐标
-      let centerPos = getPxFromLngLat(...this.center, this.zoom);
-      // 中心像素坐标距中心瓦片左上角的差值
+      let centerPos = getPxFromLngLat(...center, this.zoom, plusOpt);
+      // 中心像素坐标距中心瓦片左上/下角的差值
       let offset = [
         centerPos[0] - centerTilePos[0],
         centerPos[1] - centerTilePos[1],
@@ -321,16 +482,24 @@ export default {
       let colMaxNum = Math.ceil(
         (this.height / 2 - (TILE_SIZE - offset[1])) / TILE_SIZE
       );
-      // 渲染画布内所有瓦片
+      // y轴向上
+      let axisYIsTop = this.selectMapData.axis ? this.selectMapData.axis[1] === 'top' : false
       this.currentTileCache = {}; // 清空缓存对象
+      // 渲染画布内所有瓦片
       for (let i = -rowMinNum; i <= rowMaxNum; i++) {
         for (let j = -colMinNum; j <= colMaxNum; j++) {
           // 当前瓦片的行列号
           let row = centerTile[0] + i;
           let col = centerTile[1] + j;
           // 当前瓦片的显示位置
+          let _j = j
+          // 百度地图，坐标系和画布坐标系y轴相反
+          if (axisYIsTop && j !== 0) {
+            _j = -j
+          }
           let x = i * TILE_SIZE - offset[0];
-          let y = j * TILE_SIZE - offset[1];
+          // 百度地图的offset[1]是中心点距中心瓦片左下角的距离，需要换算成左上角的y值
+          let y = _j * TILE_SIZE - (axisYIsTop ? TILE_SIZE - offset[1] : offset[1]);
           // 缓存key
           let cacheKey = row + "_" + col + "_" + this.zoom;
           // 记录当前需要的瓦片
@@ -355,6 +524,10 @@ export default {
               shouldRender: (key) => {
                 return this.currentTileCache[key];
               },
+              // 获取当前地图类型
+              getMapTypeData: () => {
+                return this.selectMapData
+              }
             });
           }
         }
@@ -402,11 +575,11 @@ export default {
       }
       this.lastMouseTime = curTime;
       // 计算本次拖动的距离对应的经纬度数据
-      let mx = e.movementX * resolutions[this.zoom];
-      let my = e.movementY * resolutions[this.zoom];
-      let [x, y] = lngLat2Mercator(...this.center);
+      let mx = e.movementX * (this.selectMapData.resolutions || resolutions)[this.zoom];
+      let my = e.movementY * (this.selectMapData.resolutions || resolutions)[this.zoom];
+      let [x, y] = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...this.center);
       // 更新拖动后的中心点经纬度
-      this.center = mercatorToLngLat(x - mx, my + y);
+      this.center = (this.selectMapData.mercatorToLngLat || mercatorToLngLat)(x - mx, my + y);
       // 清除画布重新渲染瓦片
       this.clearLayer();
       this.renderTiles();
@@ -451,11 +624,11 @@ export default {
         },
         onComplete: () => {
           // 计算本次拖动的距离对应的经纬度数据
-          let mx = this.translate[0] * resolutions[this.zoom];
-          let my = this.translate[1] * resolutions[this.zoom];
-          let [x, y] = lngLat2Mercator(...this.center);
+          let mx = this.translate[0] * (this.selectMapData.resolutions || resolutions)[this.zoom];
+          let my = this.translate[1] * (this.selectMapData.resolutions || resolutions)[this.zoom];
+          let [x, y] = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...this.center);
           // 更新拖动后的中心点经纬度
-          this.center = mercatorToLngLat(x - mx, my + y);
+          this.center = (this.selectMapData.mercatorToLngLat || mercatorToLngLat)(x - mx, my + y);
           this.useLayer1 = !this.useLayer1;
           this.resetTranslate();
           // 当前不在画布上的瓦片透明度都恢复成0
@@ -564,13 +737,13 @@ export default {
         });
       }
       // 目标位置经纬度转3857坐标
-      let newCenterMercator = lngLat2Mercator(...newCenter);
+      let newCenterMercator = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...newCenter);
       // 当前经纬度转3857坐标
-      let centerMercator = lngLat2Mercator(...this.center);
+      let centerMercator = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...this.center);
       // 计算两者的距离，转换成像素
       this.translate = [
-        (newCenterMercator[0] - centerMercator[0]) / resolutions[this.zoom],
-        (newCenterMercator[1] - centerMercator[1]) / resolutions[this.zoom],
+        (newCenterMercator[0] - centerMercator[0]) / (this.selectMapData.resolutions || resolutions)[this.zoom],
+        (newCenterMercator[1] - centerMercator[1]) / (this.selectMapData.resolutions || resolutions)[this.zoom],
       ];
       // 重置画布
       this.resetLayer();
@@ -693,6 +866,19 @@ export default {
   left: 50%;
   top: 50%;
   transform: translateX(-50%);
+}
+
+.mapTypeSelectBox {
+  position: absolute;
+  left: 230px;
+  top: 20px;
+  width: 100px;
+  height: 30px;
+}
+
+.mapTypeSelectBox select {
+  width: 100%;
+  height: 100%;
 }
 
 .searchBox {
