@@ -605,7 +605,7 @@ export default {
         this.resetTranslate();
         return
       }
-      this.translate = [speedX / 0.005, speedY / 0.005];
+      this.translate = [this.translateTmp[0] + speedX / 0.005, this.translateTmp[1] + speedY / 0.005];
       this.resetLayer();
       if (this.translatePlayback) {
         this.translatePlayback.stop();
@@ -614,6 +614,7 @@ export default {
         from: this.translateTmp.join(" "),
         to: this.translate.join(" "),
         ease: easeOut,
+        duration: 300 + (Math.abs(speedX) + Math.abs(speedY))/2 * 100,
         onUpdate: (latest) => {
           this.translateTmp = this.stringValueToArray(latest);
           let layer = this.getCurrentMainLayer();
