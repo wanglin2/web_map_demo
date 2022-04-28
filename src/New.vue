@@ -57,6 +57,8 @@
         @click.stop="zoomOut"
       ></div>
     </div>
+    <!-- 叠加物 -->
+    <img class="overlay" src="./assets/camera.png" :style="{left: overlayPos.x + 'px', top: overlayPos.y + 'px'}" alt="">
   </div>
 </template>
 
@@ -381,7 +383,17 @@ export default {
             return `http://dynamic.t${domainIndex}.tiles.ditu.live.com/comp/ch/${result}?it=G,VE,BX,L,LA&mkt=zh-cn,syr&n=z&og=111&ur=CN`
           }
         },
-      ]
+      ],
+      // 叠加物
+      overlayPos: {
+        x: 0,
+        y: 0
+      },
+      startOverlayPos: {
+        x: 0,
+        y: 0
+      },
+      overlayCood: [120.1829784447035,30.243167147657232]
     };
   },
   watch: {
@@ -532,6 +544,23 @@ export default {
           }
         }
       }
+      // 渲染叠加物
+      this.renderOverlay();
+    },
+
+    // 显示叠加物
+    renderOverlay() {
+      // 中心点转换成像素坐标
+      let centerPos = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...this.center);
+      // 叠加物转成像素坐标
+      let overlayPos = (this.selectMapData.lngLatToMercator || lngLatToMercator)(...this.overlayCood);
+      //叠加物距离中心点的像素差值
+      let offset = [
+        (overlayPos[0] - centerPos[0]) / (this.selectMapData.resolutions || resolutions)[this.zoom],
+        (overlayPos[1] - centerPos[1]) / (this.selectMapData.resolutions || resolutions)[this.zoom]
+      ]
+      this.overlayPos.x = offset[0] + this.width / 2
+      this.overlayPos.y = this.height / 2 - offset[1]
     },
 
     // 清空图层
@@ -553,6 +582,11 @@ export default {
       willLayer.removeChildren();
       currentLayer.zIndex(0);
       willLayer.zIndex(1);
+      // 重置叠加物
+      this.startOverlayPos = {
+        x: this.overlayPos.x,
+        y: this.overlayPos.y
+      }
     },
 
     // 鼠标按下
@@ -622,6 +656,9 @@ export default {
           layer
             .x(this.width / 2 + this.translateTmp[0])
             .y(this.height / 2 + this.translateTmp[1]);
+          // 叠加物移动
+          this.overlayPos.x = this.startOverlayPos.x + this.translateTmp[0]
+          this.overlayPos.y = this.startOverlayPos.y + this.translateTmp[1]
         },
         onComplete: () => {
           // 计算本次拖动的距离对应的经纬度数据
@@ -694,6 +731,12 @@ export default {
             x: latest,
             y: latest,
           });
+          // 叠加物移动
+          // 叠加物坐标系原点在左上角，画布坐标系原点在中间，缩放是以中间为原点进行缩放，所以先把屏幕坐标转换成画布坐标，缩放完后再转回去
+          let x = (this.startOverlayPos.x - this.width / 2) * latest
+          let y = (this.startOverlayPos.y - this.height / 2) * latest
+          this.overlayPos.x = x + this.width / 2
+          this.overlayPos.y = y + this.height / 2
         },
         onComplete: () => {
           // 切换图层
@@ -760,6 +803,9 @@ export default {
           layer
             .x(this.width / 2 - this.translateTmp[0])
             .y(this.height / 2 + this.translateTmp[1]);
+          // 叠加物移动
+          this.overlayPos.x = this.startOverlayPos.x - this.translateTmp[0]
+          this.overlayPos.y = this.startOverlayPos.y + this.translateTmp[1]
         },
         onComplete: () => {
           // 中心点更新为目标经纬度
@@ -973,5 +1019,10 @@ export default {
 
 .scaleBtn.disabled {
   opacity: 0.2;
+}
+
+.overlay {
+  position: absolute;
+  transform: translate(-50%, -50%);
 }
 </style>
